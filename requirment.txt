@@ -1,0 +1,446 @@
+Auction Tracker Platform – MVP Build Requirements (Codex Instructions)
+
+1. Purpose
+
+Build a Minimum Viable Product (MVP) web application to track a live cricket player auction.
+
+This MVP is NOT a full tournament management system.
+It is ONLY for running and viewing a single auction for one tournament.
+
+2. Technology Stack (Fixed)
+
+Frontend: React (web)
+
+Database: Firebase Firestore
+
+Authentication: Firebase Auth (Admin only)
+
+Real-time: Firestore real-time listeners (no WebSockets)
+
+3. Core Rules (DO NOT DEVIATE)
+
+✅ Only ONE tournament
+
+✅ Only auction tracking
+
+❌ No multi-tournament support
+
+❌ No payments
+
+❌ No analytics
+
+❌ No chat, notifications, or extras
+
+❌ No captain logins (view-only)
+
+4. User Roles
+   4.1 Admin
+
+Authenticated using Firebase Auth
+
+Can create, edit, and update everything
+
+Controls the auction
+
+4.2 Team Captains (View-Only)
+
+NO AUTH REQUIRED
+
+Can only view auction state
+
+Cannot edit, bid, or modify anything
+
+5. Data Model (Firestore)
+   5.1 Tournament (single document)
+   tournament {
+   name: string
+   season: string
+   }
+
+Only one document exists.
+
+5.2 Teams (collection)
+teams {
+id: string
+name: string
+captainName: string
+totalPurse: number
+remainingPurse: number
+}
+
+Rules:
+
+Remaining purse must never go below zero
+
+5.3 Players (collection)
+players {
+id: string
+name: string
+contactNumber: string
+role: string
+basePrice: number
+status: "AVAILABLE" | "SOLD"
+soldToTeamId: string | null
+soldPrice: number | null
+}
+
+Allowed roles (exact values):
+
+Batsman
+
+Bowler
+
+All-rounder
+
+Wicket-keeper batsman
+
+Pace bowling all-rounder
+
+Spin bowling all-rounder
+
+5.4 Auction State (single document)
+auctionState {
+currentPlayerId: string | null
+currentBid: number
+leadingTeamId: string | null
+status: "IDLE" | "LIVE" | "SOLD"
+}
+
+6. Functional Requirements (MVP)
+   6.1 Admin Authentication
+
+Firebase Auth email/password login
+
+Only logged-in admins can access admin screens
+
+No role management needed (any logged-in user = admin)
+
+6.2 Team Setup (Admin)
+
+Admin can:
+
+Create teams
+
+Set team name, captain name, total purse
+
+View remaining purse (auto-calculated)
+
+No editing during live auction (optional but preferred).
+
+6.3 Player Setup (Admin)
+
+Admin can:
+
+Add players to player pool
+
+Edit player details before auction
+
+Cannot edit player once sold
+
+6.4 Auction Control (ADMIN ONLY)
+
+Admin can:
+
+Select a player to auction
+
+Start auction
+
+Enter/update bid amount manually
+
+Select leading team
+
+Mark player as SOLD
+
+When player is marked SOLD:
+
+Deduct bid amount from team remaining purse
+
+Update player status to SOLD
+
+Assign player to team
+
+Reset auction state for next player
+
+System must block:
+
+Bids higher than team’s remaining purse
+
+6.5 View-Only Auction Screen (Captains)
+
+Captains can see:
+
+Current auction player
+
+Player role & base price
+
+Current bid
+
+Leading team
+
+Team-wise remaining purse
+
+Players already sold to teams
+
+No buttons.
+No inputs.
+Read-only.
+
+7. UI Pages (Minimal)
+   Admin Pages
+
+/admin/login
+
+/admin/setup (teams + players)
+
+/admin/auction
+
+Public View Page
+
+/auction/view
+
+8. Real-Time Behaviour
+
+Use Firestore listeners
+
+Any admin change must reflect instantly on viewer screens
+
+Page refresh acceptable (no socket requirement)
+
+9. Validation Rules (Critical)
+
+Team purse cannot go below zero
+
+Player can only be sold once
+
+Only one active auction at a time
+
+Auction must have a selected player
+
+10. Out of Scope (Do NOT Implement)
+
+❌ Multiple tournaments
+
+❌ Captain login
+
+❌ Auto bidding logic
+
+❌ Undo / history
+
+❌ Notifications
+
+❌ Mobile app
+
+❌ Styling beyond basic usability
+
+11. Definition of Done (MVP Complete When)
+
+Admin can run a full auction end-to-end
+
+Team budgets are accurate
+
+Captains can view auction live
+
+Data persists correctly in Firestore
+
+No team can overspend
+
+12. Future (Explicitly Deferred)
+
+Multiple tournaments
+
+Role-based permissions
+
+Auction history
+
+Mobile support
+
+Advanced real-time features
+
+
+
+MVP UPDATE: Live Bidding History (MANDATORY FEATURE)
+1. Requirement Summary
+
+During a live auction, the system MUST display the full bidding sequence for the currently auctioned player.
+
+This is a must-have feature, not optional.
+
+Captains and admins must be able to see:
+
+Who bid
+
+How much was bid
+
+In what order the bids happened
+
+This improves transparency and trust in the auction.
+
+2. Bidding Flow (Expected Behaviour)
+
+Example scenario:
+
+Player base price: 20,000
+
+Team A bids: 20,000
+
+Team B bids: 25,000
+
+Team C bids: 30,000
+
+Team A bids: 40,000
+
+Team B bids: 50,000 (winning bid)
+
+👉 All of the above bids must appear live on the screen in sequence.
+
+3. Data Model Update (Firestore)
+3.1 Bid History (Subcollection or Array)
+Option A (Preferred – scalable)
+
+Subcollection under current auction player:
+
+players/{playerId}/bids/{bidId}
+
+bid {
+  teamId: string
+  teamName: string
+  amount: number
+  timestamp: number
+}
+
+Option B (Simpler – acceptable for MVP)
+
+Array inside auctionState:
+
+auctionState {
+  currentPlayerId: string | null
+  currentBid: number
+  leadingTeamId: string | null
+  status: "IDLE" | "LIVE" | "SOLD"
+  bidHistory: [
+    {
+      teamId: string
+      teamName: string
+      amount: number
+      timestamp: number
+    }
+  ]
+}
+
+
+⚠️ Either approach is fine for MVP, but bid history must be persisted, not UI-only.
+
+4. Functional Requirements – Bid History
+4.1 Admin Actions
+
+When admin enters a new bid:
+
+The bid must be appended to bid history
+
+The UI must update immediately
+
+The system must:
+
+Validate team purse
+
+Update currentBid
+
+Update leadingTeamId
+
+Admin cannot delete or edit previous bids.
+
+4.2 Live View (Admin + Captains)
+
+The auction screen MUST show:
+
+Base price
+
+Current highest bid
+
+Leading team
+
+Scrollable bid history list, showing:
+
+Team name
+
+Bid amount
+
+Order (latest on top or bottom)
+
+Example UI (simple):
+
+BID HISTORY
+------------------
+Team A – 20,000
+Team B – 25,000
+Team C – 30,000
+Team A – 40,000
+Team B – 50,000
+
+
+✔ Updates in real time using Firestore listeners
+✔ Visible to both admin and view-only captains
+
+5. Auction Completion Rule (With Bid History)
+
+When admin marks player as SOLD:
+
+Winning bid = last entry in bid history
+
+Player record updated:
+
+status = SOLD
+
+soldPrice = winning bid amount
+
+soldToTeamId = winning team
+
+Team purse deducted
+
+Auction state reset:
+
+currentPlayerId = null
+
+currentBid = 0
+
+leadingTeamId = null
+
+bidHistory = []
+
+6. Validation Rules (Critical)
+
+Every bid must be ≥ base price
+
+Every bid must be greater than previous bid
+
+Team purse must be sufficient
+
+Bid history must be append-only
+
+No bid updates allowed after player is SOLD
+
+7. MVP Boundary (Reconfirmed)
+
+Still OUT OF SCOPE:
+
+Bid undo
+
+Bid deletion
+
+Bid analytics
+
+Auto-increment bidding
+
+Multiple auctions at once
+
+8. Updated MVP Success Criteria
+
+The MVP is successful only if:
+
+Live bid history is visible during auction
+
+Bids appear instantly for captains
+
+Winning bid is clearly traceable
+
+Auction transparency is guaranteed
