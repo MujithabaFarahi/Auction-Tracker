@@ -1,0 +1,58 @@
+name	contactNumber	area	role	basePrice	availability	regularTeam
+M. F. M Fazlan	0726482987	Mangedara	All-Rounder (Pace)	40000	Yes, fully available	Aathi
+Mohamed Aaqil 	0776187557	Nangalla	All-Rounder (Pace)	20000	Yes, fully available	Golden Eagles
+Nusky 	0770260834	Mangedara	Fast Bowler	20000	Yes, fully available	Brotherhood
+Fiyaz Hamza	0740122378	Nangalla	All-Rounder (Pace)	75000	Yes, fully available	
+Mohammed Thameem	0775530142	Majeedpura	All-Rounder (Spin)	20000	Yes, fully available	
+R M A Riswan	0718440678	Nangalla	All-Rounder (Pace)	50000	Yes, fully available	
+S shantha	0771822335	Mangadar	All-Rounder (Pace)	40000	Yes, fully available	
+Nusaif	0767022843	Nangalla 	Fast Bowler	40000	Yes, fully available	
+Mohamed safry 	0779464225	Majeedpura	All-Rounder (Pace)	40000	Yes, fully available	
+M.J.H.M AFLAL HASSEN	0773959880	Majeedpura	Fast Bowler	20000	Yes, fully available	
+Waseem akram 	0728585651	Nangalla	All-Rounder (Pace)	30000	Yes, fully available	
+ak farhan	0718973686	Majeedpura	All-Rounder (Pace)	40000	Yes, fully available	
+Adhil Ahamed	0786492520	Nangalla	Batsman	20000	Yes, fully available	
+Mohamed huwailid mohamed safras	0777240670	Majeedpura	Spin Bowler	40000	Yes, fully available	
+M. I AflalDeen	0765518481	Mangedara	All-Rounder (Pace)	40000	Yes, fully available	
+Mohamed Mushakir	0779308392	Nangalla	Batsman	40000	Yes, fully available	Lee cooper
+Ahmed	0777577474	Mangedara	All-Rounder (Pace)	30000	Yes, fully available	Brotherhood
+Arkaz	0760888685	Mangedara	All-Rounder (Pace)	50000	Yes, fully available	
+M.Fairoos	0771755631	Nangalla	Spin Bowler	20000	Yes, fully available	Falcons
+MZM AATHIF 	0779666034	Mangedara	Wicket-keeper Batsman	40000	Yes, fully available	Brotherhood
+Yaasir	0778008593	Nangalla	All-Rounder (Spin)	20000	Yes, fully available	
+Husny rashad 	0766659474	Nangalla	All-Rounder (Pace)	20000	Yes, fully available	
+ Suhaib Mufthy	0722004398	Nangalla	All-Rounder (Pace)	20000	Yes, fully available	
+SHEEDH	0715468705	Nangalla	Batsman	20000	Yes, fully available	
+Mohommed Rikas	0770603351	Mangedara	All-Rounder (Pace)	50000	Yes, fully available	Brotherhood
+Shaheer	0776296646	Mangedara	All-Rounder (Pace)	40000	Yes, fully available	
+Arshad	0754774621	Mangedara	Fast Bowler	60000	Yes, fully available	Super star
+Mohamed Amjar 	076 291 0077 	Majeedpura	Fast Bowler	40000	Yes, fully available	falcons 
+Shazan Mohammed 	077-6368274	Nangalla	Fast Bowler	40000	Yes, fully available	
+M.J.H.M AFLAL HASSEN	0773959880	Majeedpura	All-Rounder (Pace)	20000	Yes, fully available	jamaica boys
+M.A.M.Ashik	0754710619	Majeedpura	All-Rounder (Pace)	20000	Yes, fully available	
+Nasik ahamed	0764722373	Majeedpura	All-Rounder (Pace)	30000	Yes, fully available	
+Mohamed Amry 	076 637 6566 	Nangalla	Spin Bowler	20000	Yes, fully available	
+M.S Ahamed 	0766898294	Mangedara	All-Rounder (Pace)	40000	Yes, fully available	Golden eagle 
+Rushaid	0774782269	Nangalla	All-Rounder (Pace)	75000	Yes, fully available	
+Abdul Azeez	0740874934	Mangedara	All-Rounder (Pace)	20000	Yes, fully available	
+M.R.M Rifky	0743521006	Mangedara	Fast Bowler	20000	Yes, fully available	Brotherhood 
+Irshad	0773369761	Nangalla	All-Rounder (Pace)	75000	Yes, fully available	Nangalla Legends
+Mohamed fahir	0769295246	Majeedpura	Batsman	20000	Yes, fully available	
+UNAIS 	0770091114	Majeedpura	All-Rounder (Spin)	75000	Yes, fully available	Nangalla Legends 
+Nusky Naseem	077-1660909	Nangalla	All-Rounder (Pace)	50000	Yes, fully available	
+Afraj	0767635953	Nangalla	Fast Bowler	40000	Yes, fully available	Falcons
+Mohammad Riswan Halidh	0711841445	Nangalla	Batsman	40000	Yes, fully available	Golden Eegles 
+M.mushthak	0712299522	Nangalla	All-Rounder (Spin)	75000	Yes, fully available	Nangalla legends
+SHAMEER	0711875382	Nangalla	All-Rounder (Pace)	20000	Yes, fully available	
+Mohamed Umar	0778901078	Nangalla	All-Rounder (Pace)	20000	Yes, fully available	Nangalla wild fires
+Hasheeb	0773214356	Mangedara	All-Rounder (Pace)	20000	Yes, fully available	Golden eagles 
+Ismail	0725321010	Nangalla	All-Rounder (Pace)	20000	Yes, fully available	Golden eagles 
+M.R.M Rilwan	0743172244	Majeedpura	All-Rounder (Pace)	40000	Yes, fully available	
+Ajmal	0766587127	Mangedara	All-Rounder (Pace)	20000	Yes, fully available	Brotherhood 
+Nashad	0771404124	Majeedpura	Fast Bowler	20000	Yes, fully available	
+MUSHRIFDEEN	0770808078	Nangalla	Batsman	20000	Yes, fully available	
+M k m Nafaz 	0771848323/ 0760593738	Majeedpura	All-Rounder (Pace)	50000	Yes, fully available	
+MNM RIHAN	0777421683	Majeedpura	Batsman	20000	Yes, fully available	
+Aadil 	0764683461	Mangedara	Batsman	30000	Yes, fully available	
+Shishan	0769673768	Majeedpura	All-Rounder (Pace)	30000	Yes, fully available	
+Amaan King	0757775092	Mangedara	All-Rounder (Pace)	30000	Yes, fully available	Aadhi

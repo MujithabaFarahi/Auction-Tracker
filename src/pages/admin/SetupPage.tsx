@@ -2,12 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { onSnapshot, setDoc } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -45,6 +40,22 @@ import {
   type Team,
   type Tournament,
 } from "@/lib/firestore";
+import playerPoolRaw from "../../../playerpool.txt?raw";
+
+const PLAYER_AREAS = ["Nangalla", "Mangedara", "Majeedpura"] as const;
+const ROLE_ALIASES: Record<string, (typeof PLAYER_ROLES)[number]> = {
+  batsman: "Batsman",
+  "wicket-keeper batsman": "Wicket-keeper Batsman",
+  "wicket keeper batsman": "Wicket-keeper Batsman",
+  "fast bowler": "Fast Bowler",
+  "spin bowler": "Spin Bowler",
+  "all-rounder (pace)": "All-Rounder (Pace)",
+  "all rounder (pace)": "All-Rounder (Pace)",
+  "allrounder (pace)": "All-Rounder (Pace)",
+  "all-rounder (spin)": "All-Rounder (Spin)",
+  "all rounder (spin)": "All-Rounder (Spin)",
+  "allrounder (spin)": "All-Rounder (Spin)",
+};
 
 type TeamFormState = {
   name: string;
@@ -54,8 +65,10 @@ type TeamFormState = {
 type PlayerFormState = {
   name: string;
   contactNumber: string;
+  area: string;
   role: PlayerRole;
   basePrice: string;
+  regularTeam: string;
   assignToTeam: boolean;
   teamId: string;
 };
@@ -74,8 +87,10 @@ const emptyTeamForm: TeamFormState = {
 const emptyPlayerForm: PlayerFormState = {
   name: "",
   contactNumber: "",
+  area: "",
   role: PLAYER_ROLES[0],
   basePrice: "",
+  regularTeam: "",
   assignToTeam: false,
   teamId: "",
 };
@@ -100,6 +115,7 @@ function SetupPage() {
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
 
   useEffect(() => {
     void ensureAuctionState();
@@ -162,7 +178,7 @@ function SetupPage() {
   const canEditTeam = (team: Team) =>
     !auctionLive && team.remainingPurse === team.totalPurse;
 
-  const canEditPlayer = (_player: Player) => true;
+  const canEditPlayer = () => true;
   const canDeletePlayer = (player: Player) =>
     auctionState?.currentPlayerId !== player.id;
 
@@ -222,8 +238,10 @@ function SetupPage() {
         await updatePlayer(editingPlayerId, {
           name: playerForm.name,
           contactNumber: playerForm.contactNumber,
+          area: playerForm.area,
           role: playerForm.role,
           basePrice,
+          regularTeam: playerForm.regularTeam,
         });
       } else {
         const assignedToTeam = playerForm.assignToTeam
@@ -232,8 +250,10 @@ function SetupPage() {
         await savePlayer({
           name: playerForm.name,
           contactNumber: playerForm.contactNumber,
+          area: playerForm.area,
           role: playerForm.role,
           basePrice,
+          regularTeam: playerForm.regularTeam,
           status: assignedToTeam ? "SOLD" : "AVAILABLE",
           soldToTeamId: assignedToTeam,
           soldPrice: assignedToTeam ? 0 : null,
@@ -265,9 +285,7 @@ function SetupPage() {
         setPlayerForm(emptyPlayerForm);
       }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to delete player.",
-      );
+      setError(err instanceof Error ? err.message : "Unable to delete player.");
     } finally {
       setSaving(false);
     }
@@ -311,6 +329,124 @@ function SetupPage() {
       tournament.teamPurse ?? 0,
     )} per team`;
   }, [tournament]);
+
+  const sortedPlayers = useMemo(
+    () =>
+      [...players].sort(
+        (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
+      ),
+    [players],
+  );
+
+  const normalizeRole = (rawRole: string) => {
+    const key = rawRole.trim().toLowerCase().replace(/\s+/g, " ");
+    return ROLE_ALIASES[key] ?? null;
+  };
+
+  const normalizeArea = (rawArea: string) => {
+    const cleaned = rawArea.trim().toLowerCase();
+    const match = PLAYER_AREAS.find((area) => area.toLowerCase() === cleaned);
+    return match ?? "";
+  };
+
+  const parsePlayerPool = (raw: string) => {
+    const lines = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const rows = lines.map((line) => line.split("\t"));
+    const dataRows = rows.filter((columns) => {
+      const name = (columns[0] ?? "").trim().toLowerCase();
+      return name && name !== "name";
+    });
+
+    return dataRows.map((columns) => {
+      const getColumn = (index: number) =>
+        (columns[index] ?? "").toString().trim();
+
+      return {
+        name: getColumn(0),
+        contactNumber: getColumn(1),
+        area: getColumn(2),
+        role: getColumn(3),
+        basePrice: getColumn(4),
+        regularTeam: getColumn(6),
+      };
+    });
+  };
+
+  const handleImportPlayers = async () => {
+    setError(null);
+    setImportStatus(null);
+
+    const rows = parsePlayerPool(playerPoolRaw);
+    if (rows.length === 0) {
+      setImportStatus("No rows found in player pool.");
+      return;
+    }
+
+    const confirmation = window.confirm(
+      `Import ${rows.length} players from playerpool.txt?`,
+    );
+    if (!confirmation) {
+      return;
+    }
+
+    setSaving(true);
+    let imported = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    try {
+      for (const row of rows) {
+        const role = normalizeRole(row.role);
+        if (!row.name || !role) {
+          skipped += 1;
+          errors.push(
+            `Skipped: ${row.name || "Unknown"} (invalid role: ${row.role})`,
+          );
+          continue;
+        }
+
+        const basePrice = Number((row.basePrice ?? "").replace(/[, ]+/g, ""));
+        if (Number.isNaN(basePrice) || basePrice < 0) {
+          skipped += 1;
+          errors.push(
+            `Skipped: ${row.name || "Unknown"} (invalid base price: ${row.basePrice})`,
+          );
+          continue;
+        }
+
+        await savePlayer({
+          name: row.name,
+          contactNumber: row.contactNumber,
+          area: normalizeArea(row.area),
+          role,
+          basePrice,
+          regularTeam: row.regularTeam || "",
+          status: "AVAILABLE",
+          soldToTeamId: null,
+          soldPrice: null,
+          soldAt: null,
+        });
+        imported += 1;
+      }
+
+      const summary = `Imported ${imported} players${
+        skipped ? `, skipped ${skipped}` : ""
+      }.`;
+      setImportStatus(summary);
+      if (errors.length) {
+        setError(errors.slice(0, 6).join(" | "));
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to import players.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -497,6 +633,23 @@ function SetupPage() {
             <CardTitle>Players</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleImportPlayers}
+                disabled={saving}
+                isLoading={saving}
+              >
+                Load players from list
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Imports from playerpool.txt (TSV).
+              </span>
+            </div>
+            {importStatus ? (
+              <p className="text-sm text-muted-foreground">{importStatus}</p>
+            ) : null}
             <form className="space-y-3" onSubmit={handlePlayerSubmit}>
               <div className="space-y-2">
                 <Label htmlFor="player-name">Player name</Label>
@@ -525,6 +678,30 @@ function SetupPage() {
                   }
                   disabled={saving}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="player-area">Area</Label>
+                <Select
+                  value={playerForm.area}
+                  onValueChange={(value) =>
+                    setPlayerForm((prev) => ({
+                      ...prev,
+                      area: value,
+                    }))
+                  }
+                  disabled={saving}
+                >
+                  <SelectTrigger id="player-area">
+                    <SelectValue placeholder="Select area" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PLAYER_AREAS.map((area) => (
+                      <SelectItem key={area} value={area}>
+                        {area}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="player-role">Role</Label>
@@ -564,6 +741,20 @@ function SetupPage() {
                     }))
                   }
                   disabled={saving || auctionLive}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="player-regular-team">Regular team</Label>
+                <Input
+                  id="player-regular-team"
+                  value={playerForm.regularTeam}
+                  onChange={(event) =>
+                    setPlayerForm((prev) => ({
+                      ...prev,
+                      regularTeam: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
                 />
               </div>
               {!editingPlayerId ? (
@@ -652,11 +843,11 @@ function SetupPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  players.map((player) => (
+                  sortedPlayers.map((player) => (
                     <TableRow key={player.id}>
                       <TableCell>{player.name}</TableCell>
-                          <TableCell>{player.role}</TableCell>
-                          <TableCell>{formatAmount(player.basePrice)}</TableCell>
+                      <TableCell>{player.role}</TableCell>
+                      <TableCell>{formatAmount(player.basePrice)}</TableCell>
                       <TableCell>{player.status}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
@@ -664,14 +855,16 @@ function SetupPage() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            disabled={!canEditPlayer(player) || saving}
+                            disabled={!canEditPlayer() || saving}
                             onClick={() => {
                               setEditingPlayerId(player.id);
                               setPlayerForm({
                                 name: player.name,
                                 contactNumber: player.contactNumber,
+                                area: player.area ?? "",
                                 role: player.role,
                                 basePrice: String(player.basePrice),
+                                regularTeam: player.regularTeam ?? "",
                                 assignToTeam: false,
                                 teamId: "",
                               });

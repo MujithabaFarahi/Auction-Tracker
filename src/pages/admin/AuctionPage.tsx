@@ -27,6 +27,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -60,6 +68,7 @@ function AuctionPage() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [playerCommandOpen, setPlayerCommandOpen] = useState(false);
   const lastSuggestedBidRef = useRef<number>(0);
 
   useEffect(() => {
@@ -100,7 +109,10 @@ function AuctionPage() {
   }, []);
 
   const availablePlayers = useMemo(
-    () => players.filter((player) => player.status === "AVAILABLE"),
+    () =>
+      players
+        .filter((player) => player.status === "AVAILABLE")
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)),
     [players],
   );
 
@@ -109,6 +121,11 @@ function AuctionPage() {
       players.find((player) => player.id === auctionState?.currentPlayerId) ??
       null,
     [players, auctionState?.currentPlayerId],
+  );
+
+  const selectedPlayer = useMemo(
+    () => players.find((player) => player.id === selectedPlayerId) ?? null,
+    [players, selectedPlayerId],
   );
 
   const leadingTeam = useMemo(
@@ -219,6 +236,7 @@ function AuctionPage() {
     try {
       await placeBid(selectedTeamId, amount);
       setBidAmount("");
+      setSelectedTeamId("");
     } catch (err) {
       setStatusMessage(
         err instanceof Error ? err.message : "Unable to place bid.",
@@ -245,6 +263,15 @@ function AuctionPage() {
     setStatusMessage(null);
     try {
       await markPlayerSold();
+      const nextPlayer = availablePlayers.find(
+        (player) => player.id !== auctionState?.currentPlayerId,
+      );
+      if (nextPlayer) {
+        await setCurrentPlayer(nextPlayer.id);
+        setSelectedPlayerId(nextPlayer.id);
+      } else {
+        setSelectedPlayerId("");
+      }
     } catch (err) {
       setStatusMessage(
         err instanceof Error ? err.message : "Unable to mark player sold.",
@@ -305,25 +332,17 @@ function AuctionPage() {
             <div className="space-y-2">
               <Label htmlFor="current-player">Select player</Label>
               <div className="flex flex-wrap gap-2">
-                <Select
-                  value={selectedPlayerId}
-                  onValueChange={setSelectedPlayerId}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-w-60 flex-1 justify-between"
+                  onClick={() => setPlayerCommandOpen(true)}
                   disabled={auctionLive || submitting}
                 >
-                  <SelectTrigger
-                    id="current-player"
-                    className="min-w-60 flex-1"
-                  >
-                    <SelectValue placeholder="Select an available player" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availablePlayers.map((player) => (
-                      <SelectItem key={player.id} value={player.id}>
-                        {player.name} · {player.role}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  {selectedPlayer
+                    ? `${selectedPlayer.name} · ${selectedPlayer.role}`
+                    : "Select an available player"}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -340,6 +359,34 @@ function AuctionPage() {
                   Start auction
                 </Button>
               </div>
+              <CommandDialog
+                open={playerCommandOpen}
+                onOpenChange={setPlayerCommandOpen}
+                title="Select player"
+                description="Search available players"
+              >
+                <CommandInput placeholder="Search players..." />
+                <CommandList>
+                  <CommandEmpty>No available players found.</CommandEmpty>
+                  <CommandGroup>
+                    {availablePlayers.map((player) => (
+                      <CommandItem
+                        key={player.id}
+                        value={`${player.name} ${player.role}`}
+                        onSelect={() => {
+                          setSelectedPlayerId(player.id);
+                          setPlayerCommandOpen(false);
+                        }}
+                      >
+                        <span className="font-medium">{player.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {player.role}
+                        </span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </CommandDialog>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
@@ -361,6 +408,14 @@ function AuctionPage() {
                       : "-"}
                   </span>
                 </p>
+                {currentPlayer?.regularTeam ? (
+                  <p className="text-sm text-muted-foreground">
+                    Regular team:{" "}
+                    <span className="font-medium text-foreground">
+                      {currentPlayer.regularTeam}
+                    </span>
+                  </p>
+                ) : null}
               </div>
               <div className="rounded-md border p-3">
                 <p className="text-xs uppercase text-muted-foreground">
@@ -568,7 +623,7 @@ function AuctionPage() {
               </p>
             ) : (
               <div className="space-y-2">
-                {bidHistory.map((bid, index) => (
+                {[...bidHistory].reverse().map((bid, index) => (
                   <div
                     key={`${bid.teamId}-${bid.timestamp}-${index}`}
                     className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
@@ -593,7 +648,9 @@ function AuctionPage() {
                         type="button"
                         size="icon"
                         variant="outline"
-                        onClick={() => handleDeleteBid(index)}
+                        onClick={() =>
+                          handleDeleteBid(bidHistory.length - 1 - index)
+                        }
                         disabled={submitting}
                         aria-label="Delete bid"
                       >

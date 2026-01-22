@@ -6,14 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -38,7 +30,13 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
 type CompletedSort = "timeDesc" | "timeAsc" | "priceDesc" | "priceAsc";
-type PlayersSort = "nameAsc" | "nameDesc" | "baseAsc" | "baseDesc";
+type PlayersSort =
+  | "createdDesc"
+  | "createdAsc"
+  | "nameAsc"
+  | "nameDesc"
+  | "baseAsc"
+  | "baseDesc";
 
 function AuctionViewPage() {
   const [teams, setTeams] = useState<Team[]>([]);
@@ -46,7 +44,7 @@ function AuctionViewPage() {
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [completedSort, setCompletedSort] = useState<CompletedSort>("timeDesc");
-  const [playersSort, setPlayersSort] = useState<PlayersSort>("nameAsc");
+  const [playersSort, setPlayersSort] = useState<PlayersSort>("createdAsc");
   const [playersRole, setPlayersRole] = useState<string>("all");
   const [playerSearch, setPlayerSearch] = useState("");
 
@@ -150,6 +148,10 @@ function AuctionViewPage() {
       : filteredByRole;
     const sorted = [...filtered];
     switch (playersSort) {
+      case "createdAsc":
+        return sorted.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+      case "createdDesc":
+        return sorted.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
       case "baseAsc":
         return sorted.sort((a, b) => a.basePrice - b.basePrice);
       case "baseDesc":
@@ -242,6 +244,14 @@ function AuctionViewPage() {
                             : "-"}
                         </span>
                       </p>
+                      {currentPlayer?.regularTeam ? (
+                        <p className="text-sm text-muted-foreground">
+                          Regular team:{" "}
+                          <span className="font-medium text-foreground">
+                            {currentPlayer.regularTeam}
+                          </span>
+                        </p>
+                      ) : null}
                     </div>
                     <div className="rounded-md border bg-background p-3">
                       <p className="text-xs uppercase text-muted-foreground">
@@ -261,30 +271,32 @@ function AuctionViewPage() {
                     <h3 className="text-sm font-semibold">Bid history</h3>
                     <div className="mt-2 space-y-2">
                       {auctionState?.bidHistory?.length ? (
-                        auctionState.bidHistory.map((bid, index) => (
-                          <div
-                            key={`${bid.teamId}-${bid.timestamp}-${index}`}
-                            className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm"
-                          >
-                            <span>
-                              {formatTeamLabel(
-                                teams.find(
-                                  (team) => team.id === bid.teamId,
-                                ) ?? {
-                                  id: bid.teamId,
-                                  name: bid.teamName,
-                                  captainName: "",
-                                  totalPurse: 0,
-                                  remainingPurse: 0,
-                                  spentAmount: 0,
-                                },
-                              )}
-                            </span>
-                            <span className="font-semibold">
-                              {formatAmount(bid.amount)}
-                            </span>
-                          </div>
-                        ))
+                        [...auctionState.bidHistory]
+                          .reverse()
+                          .map((bid, index) => (
+                            <div
+                              key={`${bid.teamId}-${bid.timestamp}-${index}`}
+                              className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm"
+                            >
+                              <span>
+                                {formatTeamLabel(
+                                  teams.find(
+                                    (team) => team.id === bid.teamId,
+                                  ) ?? {
+                                    id: bid.teamId,
+                                    name: bid.teamName,
+                                    captainName: "",
+                                    totalPurse: 0,
+                                    remainingPurse: 0,
+                                    spentAmount: 0,
+                                  },
+                                )}
+                              </span>
+                              <span className="font-semibold">
+                                {formatAmount(bid.amount)}
+                              </span>
+                            </div>
+                          ))
                       ) : (
                         <p className="text-sm text-muted-foreground">
                           No bids yet. Updates appear live.
@@ -342,274 +354,234 @@ function AuctionViewPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="completed">
-            <Card>
-              <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle>Completed Players</CardTitle>
-                <div className="flex items-center gap-2 text-sm mt-2 w-full sm:w-auto">
-                  <Select
-                    value={completedSort}
-                    onValueChange={(value) =>
-                      setCompletedSort(value as CompletedSort)
-                    }
-                  >
-                    <SelectTrigger className="h-8 w-full sm:max-w-48">
-                      <SelectValue placeholder="Sort" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="timeDesc">Time (newest)</SelectItem>
-                      <SelectItem value="timeAsc">Time (oldest)</SelectItem>
-                      <SelectItem value="priceDesc">
-                        Price (high to low)
-                      </SelectItem>
-                      <SelectItem value="priceAsc">
-                        Price (low to high)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-hidden rounded-lg border bg-background/70">
-                  <Table>
-                    <TableHeader className="bg-muted/60">
-                      <TableRow className="hover:bg-muted/60">
-                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Player
-                        </TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Team
-                        </TableHead>
-                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Price
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {sortedCompletedPlayers.length === 0 ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={3}
-                            className="py-6 text-center text-muted-foreground"
-                          >
-                            No completed players yet.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        sortedCompletedPlayers.map((player) => {
-                          const team = teams.find(
-                            (item) => item.id === player.soldToTeamId,
-                          );
-                          return (
-                            <TableRow
-                              key={player.id}
-                              className="hover:bg-muted/30"
+          <TabsContent value="completed" className="space-y-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle>Completed Players</CardTitle>
+              <div className="flex items-center gap-2 text-sm w-full sm:w-auto">
+                <Select
+                  value={completedSort}
+                  onValueChange={(value) =>
+                    setCompletedSort(value as CompletedSort)
+                  }
+                >
+                  <SelectTrigger className="h-8 w-full sm:max-w-48">
+                    <SelectValue placeholder="Sort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="timeDesc">Time (newest)</SelectItem>
+                    <SelectItem value="timeAsc">Time (oldest)</SelectItem>
+                    <SelectItem value="priceDesc">
+                      Price (high to low)
+                    </SelectItem>
+                    <SelectItem value="priceAsc">
+                      Price (low to high)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {sortedCompletedPlayers.length === 0 ? (
+              <div className="rounded-lg border bg-background/70 py-6 text-center text-muted-foreground">
+                No completed players yet.
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {sortedCompletedPlayers.map((player) => {
+                  const team = teams.find(
+                    (item) => item.id === player.soldToTeamId,
+                  );
+                  return (
+                    <Card
+                      key={player.id}
+                      className="cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md p-3"
+                      onClick={() => navigate(`/auction/players/${player.id}`)}
+                    >
+                      <CardHeader className="px-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <CardTitle className="text-base">
+                              {player.name}
+                            </CardTitle>
+                            <p className="text-xs text-muted-foreground">
+                              {player.role}
+                            </p>
+                          </div>
+                          <Badge className="shrink-0">Sold</Badge>
+                        </div>
+                        <div className="text-sm">
+                          <p className="text-xs uppercase text-muted-foreground">
+                            Team
+                          </p>
+                          {team ? (
+                            <Link
+                              className="text-sm font-medium text-primary"
+                              to={`/auction/teams/${team.id}`}
+                              onClick={(event) => event.stopPropagation()}
                             >
-                              <TableCell className="py-3">
-                                <Link
-                                  className="text-sm font-medium text-primary"
-                                  to={`/auction/players/${player.id}`}
-                                >
-                                  {player.name}
-                                </Link>
-                              </TableCell>
-                              <TableCell className="py-3">
-                                {team ? (
-                                  <Link
-                                    className="text-sm text-primary"
-                                    to={`/auction/teams/${team.id}`}
-                                  >
-                                    {formatTeamLabel(team)}
-                                  </Link>
-                                ) : (
-                                  "-"
-                                )}
-                              </TableCell>
-                              <TableCell className="py-3 text-right font-medium">
-                                {player.soldPrice ? (
-                                  formatAmount(player.soldPrice)
-                                ) : (
-                                  <Badge variant={"outline"}>Drafted</Badge>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
+                              {formatTeamLabel(team)}
+                            </Link>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              -
+                            </span>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="grid gap-3 text-sm grid-cols-2 px-2 pb-3">
+                        <div className="grid text-center">
+                          <p className="text-xs uppercase text-muted-foreground">
+                            Base price
+                          </p>
+                          <p className="text-lg font-semibold">
+                            {formatAmount(player.basePrice)}
+                          </p>
+                        </div>
+                        <div className="grid text-center">
+                          <p className="text-xs uppercase text-muted-foreground">
+                            Final price
+                          </p>
+                          <p className="text-lg font-semibold">
+                            {player.soldPrice
+                              ? formatAmount(player.soldPrice)
+                              : "-"}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </TabsContent>
 
-          <TabsContent value="players">
-            <Card>
-              <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle className="sm:min-w-48">Available Players</CardTitle>
-                <div className="flex flex-col sm:items-center gap-2 text-sm sm:flex-row w-full sm:justify-end">
-                  <Input
-                    className="h-8 w-full sm:max-w-48"
-                    placeholder="Search player"
-                    value={playerSearch}
-                    onChange={(event) => setPlayerSearch(event.target.value)}
-                  />
-                  <Select
-                    value={playersRole}
-                    onValueChange={(value) => setPlayersRole(value)}
-                  >
-                    <SelectTrigger className="h-8 w-full sm:max-w-48">
-                      <SelectValue placeholder="Role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All roles</SelectItem>
-                      {PLAYER_ROLES.map((role) => (
-                        <SelectItem key={role} value={role}>
-                          {role}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={playersSort}
-                    onValueChange={(value) =>
-                      setPlayersSort(value as PlayersSort)
-                    }
-                  >
-                    <SelectTrigger className="h-8 w-full sm:max-w-48">
-                      <SelectValue placeholder="Sort" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="nameAsc">Name (A-Z)</SelectItem>
-                      <SelectItem value="nameDesc">Name (Z-A)</SelectItem>
-                      <SelectItem value="baseAsc">
-                        Base price (low to high)
+          <TabsContent value="players" className="space-y-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="sm:min-w-48">Available Players</CardTitle>
+              <div className="flex flex-col sm:items-center gap-2 text-sm sm:flex-row w-full sm:justify-end">
+                <Input
+                  className="h-8 w-full sm:max-w-48"
+                  placeholder="Search player"
+                  value={playerSearch}
+                  onChange={(event) => setPlayerSearch(event.target.value)}
+                />
+                <Select
+                  value={playersRole}
+                  onValueChange={(value) => setPlayersRole(value)}
+                >
+                  <SelectTrigger className="h-8 w-full sm:max-w-48">
+                    <SelectValue placeholder="Role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All roles</SelectItem>
+                    {PLAYER_ROLES.map((role) => (
+                      <SelectItem key={role} value={role}>
+                        {role}
                       </SelectItem>
-                      <SelectItem value="baseDesc">
-                        Base price (high to low)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-hidden rounded-lg border bg-background/70">
-                  <Table>
-                    <TableHeader className="bg-muted/60">
-                      <TableRow className="hover:bg-muted/60">
-                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Player
-                        </TableHead>
-                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Role
-                        </TableHead>
-                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Base price
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredPlayers.length === 0 ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={3}
-                            className="py-6 text-center text-muted-foreground"
-                          >
-                            No unsold players found.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        filteredPlayers.map((player) => (
-                          <TableRow
-                            key={player.id}
-                            className="hover:bg-muted/30"
-                          >
-                            <TableCell className="py-3">
-                              <Link
-                                className="text-sm font-medium text-primary"
-                                to={`/auction/players/${player.id}`}
-                              >
-                                {player.name}
-                              </Link>
-                            </TableCell>
-                            <TableCell className="py-3">
-                              <Badge variant="secondary">{player.role}</Badge>
-                            </TableCell>
-                            <TableCell className="py-3 text-right font-medium">
-                              {formatAmount(player.basePrice)}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={playersSort}
+                  onValueChange={(value) =>
+                    setPlayersSort(value as PlayersSort)
+                  }
+                >
+                  <SelectTrigger className="h-8 w-full sm:max-w-48">
+                    <SelectValue placeholder="Sort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nameAsc">Name (A-Z)</SelectItem>
+                    <SelectItem value="nameDesc">Name (Z-A)</SelectItem>
+                    <SelectItem value="createdDesc">Added (newest)</SelectItem>
+                    <SelectItem value="createdAsc">Added (oldest)</SelectItem>
+                    <SelectItem value="baseAsc">
+                      Base price (low to high)
+                    </SelectItem>
+                    <SelectItem value="baseDesc">
+                      Base price (high to low)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {filteredPlayers.length === 0 ? (
+              <div className="rounded-lg border bg-background/70 py-6 text-center text-muted-foreground">
+                No unsold players found.
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                {filteredPlayers.map((player) => (
+                  <div
+                    key={player.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border bg-background/70 p-3 transition hover:-translate-y-0.5 hover:bg-muted/20 hover:shadow-sm cursor-pointer"
+                    onClick={() => navigate(`/auction/players/${player.id}`)}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-primary capitalize">
+                        {player.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {player.role}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs uppercase text-muted-foreground">
+                        Base Price
+                      </p>
+                      <p className="text-sm font-semibold">
+                        {formatAmount(player.basePrice)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
-          <TabsContent value="teams">
-            <Card>
-              <CardHeader>
-                <CardTitle>Teams</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-hidden rounded-lg border bg-background/70">
-                  <Table>
-                    <TableHeader className="bg-muted/60">
-                      <TableRow className="hover:bg-muted/60">
-                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Team
-                        </TableHead>
-                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <TabsContent value="teams" className="space-y-4">
+            <CardTitle>Teams</CardTitle>
+            {teamStats.length === 0 ? (
+              <div className="rounded-lg border bg-background/70 py-6 text-center text-muted-foreground">
+                No teams created yet.
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {teamStats.map((team) => (
+                  <Card
+                    key={team.id}
+                    className="cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md"
+                    onClick={() => navigate(`/auction/teams/${team.id}`)}
+                  >
+                    <CardHeader className="gap-0">
+                      <CardTitle className="text-base">
+                        {formatTeamLabel(team)}
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        Players: {team.playersCount} / 9
+                      </p>
+                    </CardHeader>
+                    <CardContent className="grid gap-3 text-sm grid-cols-2 justify-evenly">
+                      <div className="grid text-center">
+                        <p className="text-xs uppercase text-muted-foreground">
                           Spent
-                        </TableHead>
-                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        </p>
+                        <p className="text-lg font-semibold">
+                          {formatAmount(team.spent)}
+                        </p>
+                      </div>
+                      <div className="grid text-center">
+                        <p className="text-xs uppercase text-muted-foreground">
                           Remaining
-                        </TableHead>
-                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Players
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {teamStats.length === 0 ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={4}
-                            className="py-6 text-center text-muted-foreground"
-                          >
-                            No teams created yet.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        teamStats.map((team) => (
-                          <TableRow key={team.id} className="hover:bg-muted/30">
-                            <TableCell className="py-3">
-                              <Link
-                                className="text-sm font-medium text-primary"
-                                to={`/auction/teams/${team.id}`}
-                              >
-                                {formatTeamLabel(team)}
-                              </Link>
-                            </TableCell>
-                            <TableCell className="py-3 text-right font-medium">
-                              {formatAmount(team.spent)}
-                            </TableCell>
-                            <TableCell className="py-3 text-right font-medium">
-                              {formatAmount(team.remainingPurse)}
-                            </TableCell>
-                            <TableCell className="py-3 text-right font-medium">
-                              {team.playersCount}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
+                        </p>
+                        <p className="text-lg font-semibold">
+                          {formatAmount(team.remainingPurse)}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

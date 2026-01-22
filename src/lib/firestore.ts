@@ -30,11 +30,11 @@ export type Team = {
 
 export const PLAYER_ROLES = [
   "Batsman",
-  "Bowler",
-  "All-rounder",
-  "Wicket-keeper batsman",
-  "Pace bowling all-rounder",
-  "Spin bowling all-rounder",
+  "Wicket-keeper Batsman",
+  "Fast Bowler",
+  "Spin Bowler",
+  "All-Rounder (Pace)",
+  "All-Rounder (Spin)",
 ] as const;
 
 export type PlayerRole = (typeof PLAYER_ROLES)[number];
@@ -45,8 +45,11 @@ export type Player = {
   id: string;
   name: string;
   contactNumber: string;
+  area?: string;
   role: PlayerRole;
   basePrice: number;
+  regularTeam?: string;
+  createdAt?: number;
   status: PlayerStatus;
   soldToTeamId: string | null;
   soldPrice: number | null;
@@ -141,6 +144,7 @@ export async function savePlayer(input: NewPlayerInput) {
     soldToTeamId = null,
     soldPrice = null,
     soldAt = null,
+    createdAt,
     ...rest
   } = input;
   await addDoc(playersCollectionRef, {
@@ -149,6 +153,7 @@ export async function savePlayer(input: NewPlayerInput) {
     soldToTeamId,
     soldPrice,
     soldAt,
+    createdAt: createdAt ?? Date.now(),
     bidHistory: [],
   });
 }

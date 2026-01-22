@@ -1,23 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { doc, onSnapshot } from "firebase/firestore";
 
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+
 import { formatAmount, formatTeamLabel } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/firebase";
 import { teamsCollectionRef, type Player, type Team } from "@/lib/firestore";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
 
 function AuctionPlayerPage() {
   const { playerId } = useParams();
+  const { user } = useAuth();
   const [player, setPlayer] = useState<Player | null>(null);
-  const [team, setTeam] = useState<Team | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!playerId) {
@@ -39,22 +40,6 @@ function AuctionPlayerPage() {
   }, [playerId]);
 
   useEffect(() => {
-    if (!player?.soldToTeamId) {
-      setTeam(null);
-      return;
-    }
-    const teamRef = doc(db, "teams", player.soldToTeamId);
-    const unsubscribe = onSnapshot(teamRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setTeam(null);
-        return;
-      }
-      setTeam({ id: snapshot.id, ...(snapshot.data() as Omit<Team, "id">) });
-    });
-    return () => unsubscribe();
-  }, [player?.soldToTeamId]);
-
-  useEffect(() => {
     const unsubscribe = onSnapshot(teamsCollectionRef, (snapshot) => {
       const data = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
@@ -64,6 +49,11 @@ function AuctionPlayerPage() {
     });
     return () => unsubscribe();
   }, []);
+
+  const team = useMemo(
+    () => teams.find((item) => item.id === player?.soldToTeamId) ?? null,
+    [teams, player?.soldToTeamId],
+  );
 
   const statusLabel = useMemo(() => {
     if (!player) {
@@ -84,16 +74,13 @@ function AuctionPlayerPage() {
     <div className="mx-auto w-full max-w-4xl px-4 py-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">
-            {player?.name ?? "Player"}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {player?.role ?? ""}
-          </p>
+          <h1 className="text-2xl font-semibold">{player?.name ?? "Player"}</h1>
+          <p className="text-sm text-muted-foreground">{player?.role ?? ""}</p>
         </div>
-        <Link to="/auction/view" className="text-sm font-medium text-primary">
-          Back to auction
-        </Link>
+
+        <Button variant={"ghost"} onClick={() => navigate(-1)}>
+          <ArrowLeft /> Back
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -132,9 +119,14 @@ function AuctionPlayerPage() {
           <CardTitle>Details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <p>
-            Contact: <span className="font-medium">{player?.contactNumber ?? "-"}</span>
-          </p>
+          {user ? (
+            <p>
+              Contact:{" "}
+              <span className="font-medium">
+                {player?.contactNumber ?? "-"}
+              </span>
+            </p>
+          ) : null}
           <p>
             Team:{" "}
             {team ? (
@@ -156,7 +148,7 @@ function AuctionPlayerPage() {
           <CardContent>
             {player.bidHistory?.length ? (
               <div className="space-y-2 text-sm">
-                {player.bidHistory.map((bid, index) => (
+                {[...player.bidHistory].reverse().map((bid, index) => (
                   <div
                     key={`${bid.teamId}-${bid.timestamp}-${index}`}
                     className="flex items-center justify-between rounded-md border px-3 py-2"
