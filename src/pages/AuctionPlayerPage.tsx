@@ -9,14 +9,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatAmount } from "@/lib/format";
+import { formatAmount, formatTeamLabel } from "@/lib/format";
 import { db } from "@/lib/firebase";
-import { type Player, type Team } from "@/lib/firestore";
+import { teamsCollectionRef, type Player, type Team } from "@/lib/firestore";
 
 function AuctionPlayerPage() {
   const { playerId } = useParams();
   const [player, setPlayer] = useState<Player | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
 
   useEffect(() => {
     if (!playerId) {
@@ -52,6 +53,17 @@ function AuctionPlayerPage() {
     });
     return () => unsubscribe();
   }, [player?.soldToTeamId]);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(teamsCollectionRef, (snapshot) => {
+      const data = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...(docSnap.data() as Omit<Team, "id">),
+      }));
+      setTeams(data);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const statusLabel = useMemo(() => {
     if (!player) {
@@ -127,7 +139,7 @@ function AuctionPlayerPage() {
             Team:{" "}
             {team ? (
               <Link className="text-primary" to={`/auction/teams/${team.id}`}>
-                {team.name}
+                {formatTeamLabel(team)}
               </Link>
             ) : (
               "-"
@@ -149,7 +161,18 @@ function AuctionPlayerPage() {
                     key={`${bid.teamId}-${bid.timestamp}-${index}`}
                     className="flex items-center justify-between rounded-md border px-3 py-2"
                   >
-                    <span>{bid.teamName}</span>
+                    <span>
+                      {formatTeamLabel(
+                        teams.find((item) => item.id === bid.teamId) ?? {
+                          id: bid.teamId,
+                          name: bid.teamName,
+                          captainName: "",
+                          totalPurse: 0,
+                          remainingPurse: 0,
+                          spentAmount: 0,
+                        },
+                      )}
+                    </span>
                     <span className="font-semibold">
                       {formatAmount(bid.amount)}
                     </span>

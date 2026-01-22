@@ -21,6 +21,14 @@ function AdminLayout() {
           </Link>
           <nav className="flex items-center gap-4">
             <NavLink
+              to="/auction/view"
+              className={({ isActive }) =>
+                `${linkClassName} ${isActive ? activeClassName : ""}`
+              }
+            >
+              View
+            </NavLink>{" "}
+            <NavLink
               to="/admin/setup"
               className={({ isActive }) =>
                 `${linkClassName} ${isActive ? activeClassName : ""}`

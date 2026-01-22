@@ -62,7 +62,12 @@ function LoginPage() {
               />
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <Button className="w-full" type="submit" disabled={submitting}>
+            <Button
+              className="w-full"
+              type="submit"
+              disabled={submitting}
+              isLoading={submitting}
+            >
               {submitting ? "Signing in..." : "Sign in"}
             </Button>
           </form>

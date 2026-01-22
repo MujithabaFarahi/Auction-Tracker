@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { onSnapshot } from "firebase/firestore";
 
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatAmount } from "@/lib/format";
+import { formatAmount, formatTeamLabel } from "@/lib/format";
 import {
   auctionStateDocRef,
   playersCollectionRef,
@@ -34,6 +34,8 @@ import {
   type Tournament,
 } from "@/lib/firestore";
 import { ThemeToggle } from "@/theme/ThemeToggle";
+import { useAuth } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
 
 type CompletedSort = "timeDesc" | "timeAsc" | "priceDesc" | "priceAsc";
 type PlayersSort = "nameAsc" | "nameDesc" | "baseAsc" | "baseDesc";
@@ -47,6 +49,10 @@ function AuctionViewPage() {
   const [playersSort, setPlayersSort] = useState<PlayersSort>("nameAsc");
   const [playersRole, setPlayersRole] = useState<string>("all");
   const [playerSearch, setPlayerSearch] = useState("");
+
+  const navigate = useNavigate();
+
+  const { user } = useAuth();
 
   useEffect(() => {
     const unsubscribe = onSnapshot(teamsCollectionRef, (snapshot) => {
@@ -172,12 +178,9 @@ function AuctionViewPage() {
 
   return (
     <div className="min-h-svh bg-muted/30">
-      <div className="absolute right-4 top-4">
-        <ThemeToggle />
-      </div>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="w-full">
             <h1 className="text-2xl font-semibold">
               {tournament?.name ?? "Auction Tracker"}
             </h1>
@@ -185,7 +188,14 @@ function AuctionViewPage() {
               {tournament?.season ?? "Live auction view"}
             </p>
           </div>
-          {auctionState ? <Badge>{auctionState.status}</Badge> : null}
+          <div className="flex w-full justify-between items-center sm:w-auto gap-4">
+            {user ? (
+              <Button onClick={() => navigate("/admin/auction")}>Admin</Button>
+            ) : auctionState ? (
+              <Badge>{auctionState.status}</Badge>
+            ) : null}
+            <ThemeToggle />
+          </div>
         </div>
 
         <Tabs defaultValue="live">
@@ -241,7 +251,8 @@ function AuctionViewPage() {
                         {formatAmount(auctionState?.currentBid ?? 0)}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Leading team: {leadingTeam ? leadingTeam.name : "None"}
+                        Leading team:{" "}
+                        {leadingTeam ? formatTeamLabel(leadingTeam) : "None"}
                       </p>
                     </div>
                   </div>
@@ -255,7 +266,20 @@ function AuctionViewPage() {
                             key={`${bid.teamId}-${bid.timestamp}-${index}`}
                             className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm"
                           >
-                            <span>{bid.teamName}</span>
+                            <span>
+                              {formatTeamLabel(
+                                teams.find(
+                                  (team) => team.id === bid.teamId,
+                                ) ?? {
+                                  id: bid.teamId,
+                                  name: bid.teamName,
+                                  captainName: "",
+                                  totalPurse: 0,
+                                  remainingPurse: 0,
+                                  spentAmount: 0,
+                                },
+                              )}
+                            </span>
                             <span className="font-semibold">
                               {formatAmount(bid.amount)}
                             </span>
@@ -293,10 +317,12 @@ function AuctionViewPage() {
                         </p>
                         <p className="text-sm text-muted-foreground">
                           Team:{" "}
-                          {teams.find(
-                            (team) =>
-                              team.id === lastCompletedPlayer.soldToTeamId,
-                          )?.name ?? "-"}
+                          {formatTeamLabel(
+                            teams.find(
+                              (team) =>
+                                team.id === lastCompletedPlayer.soldToTeamId,
+                            ) ?? null,
+                          )}
                         </p>
                       </div>
                       <Link
@@ -344,62 +370,75 @@ function AuctionViewPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Player</TableHead>
-                      <TableHead>Team</TableHead>
-                      <TableHead>Price</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sortedCompletedPlayers.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={3}
-                          className="text-muted-foreground"
-                        >
-                          No completed players yet.
-                        </TableCell>
+                <div className="overflow-hidden rounded-lg border bg-background/70">
+                  <Table>
+                    <TableHeader className="bg-muted/60">
+                      <TableRow className="hover:bg-muted/60">
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Player
+                        </TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Team
+                        </TableHead>
+                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Price
+                        </TableHead>
                       </TableRow>
-                    ) : (
-                      sortedCompletedPlayers.map((player) => {
-                        const team = teams.find(
-                          (item) => item.id === player.soldToTeamId,
-                        );
-                        return (
-                          <TableRow key={player.id}>
-                            <TableCell>
-                              <Link
-                                className="text-sm font-medium text-primary"
-                                to={`/auction/players/${player.id}`}
-                              >
-                                {player.name}
-                              </Link>
-                            </TableCell>
-                            <TableCell>
-                              {team ? (
+                    </TableHeader>
+                    <TableBody>
+                      {sortedCompletedPlayers.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={3}
+                            className="py-6 text-center text-muted-foreground"
+                          >
+                            No completed players yet.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        sortedCompletedPlayers.map((player) => {
+                          const team = teams.find(
+                            (item) => item.id === player.soldToTeamId,
+                          );
+                          return (
+                            <TableRow
+                              key={player.id}
+                              className="hover:bg-muted/30"
+                            >
+                              <TableCell className="py-3">
                                 <Link
-                                  className="text-sm text-primary"
-                                  to={`/auction/teams/${team.id}`}
+                                  className="text-sm font-medium text-primary"
+                                  to={`/auction/players/${player.id}`}
                                 >
-                                  {team.name}
+                                  {player.name}
                                 </Link>
-                              ) : (
-                                "-"
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {player.soldPrice
-                                ? formatAmount(player.soldPrice)
-                                : "-"}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
+                              </TableCell>
+                              <TableCell className="py-3">
+                                {team ? (
+                                  <Link
+                                    className="text-sm text-primary"
+                                    to={`/auction/teams/${team.id}`}
+                                  >
+                                    {formatTeamLabel(team)}
+                                  </Link>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
+                              <TableCell className="py-3 text-right font-medium">
+                                {player.soldPrice ? (
+                                  formatAmount(player.soldPrice)
+                                ) : (
+                                  <Badge variant={"outline"}>Drafted</Badge>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -454,44 +493,57 @@ function AuctionViewPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Player</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Base price</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredPlayers.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={3}
-                          className="text-muted-foreground"
-                        >
-                          No unsold players found.
-                        </TableCell>
+                <div className="overflow-hidden rounded-lg border bg-background/70">
+                  <Table>
+                    <TableHeader className="bg-muted/60">
+                      <TableRow className="hover:bg-muted/60">
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Player
+                        </TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Role
+                        </TableHead>
+                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Base price
+                        </TableHead>
                       </TableRow>
-                    ) : (
-                      filteredPlayers.map((player) => (
-                        <TableRow key={player.id}>
-                          <TableCell>
-                            <Link
-                              className="text-sm font-medium text-primary"
-                              to={`/auction/players/${player.id}`}
-                            >
-                              {player.name}
-                            </Link>
-                          </TableCell>
-                          <TableCell>{player.role}</TableCell>
-                          <TableCell>
-                            {formatAmount(player.basePrice)}
+                    </TableHeader>
+                    <TableBody>
+                      {filteredPlayers.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={3}
+                            className="py-6 text-center text-muted-foreground"
+                          >
+                            No unsold players found.
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        filteredPlayers.map((player) => (
+                          <TableRow
+                            key={player.id}
+                            className="hover:bg-muted/30"
+                          >
+                            <TableCell className="py-3">
+                              <Link
+                                className="text-sm font-medium text-primary"
+                                to={`/auction/players/${player.id}`}
+                              >
+                                {player.name}
+                              </Link>
+                            </TableCell>
+                            <TableCell className="py-3">
+                              <Badge variant="secondary">{player.role}</Badge>
+                            </TableCell>
+                            <TableCell className="py-3 text-right font-medium">
+                              {formatAmount(player.basePrice)}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -502,46 +554,60 @@ function AuctionViewPage() {
                 <CardTitle>Teams</CardTitle>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Team</TableHead>
-                      <TableHead>Spent</TableHead>
-                      <TableHead>Remaining</TableHead>
-                      <TableHead>Players</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {teamStats.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={4}
-                          className="text-muted-foreground"
-                        >
-                          No teams created yet.
-                        </TableCell>
+                <div className="overflow-hidden rounded-lg border bg-background/70">
+                  <Table>
+                    <TableHeader className="bg-muted/60">
+                      <TableRow className="hover:bg-muted/60">
+                        <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Team
+                        </TableHead>
+                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Spent
+                        </TableHead>
+                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Remaining
+                        </TableHead>
+                        <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Players
+                        </TableHead>
                       </TableRow>
-                    ) : (
-                      teamStats.map((team) => (
-                        <TableRow key={team.id}>
-                          <TableCell>
-                            <Link
-                              className="text-sm font-medium text-primary"
-                              to={`/auction/teams/${team.id}`}
-                            >
-                              {team.name}
-                            </Link>
+                    </TableHeader>
+                    <TableBody>
+                      {teamStats.length === 0 ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={4}
+                            className="py-6 text-center text-muted-foreground"
+                          >
+                            No teams created yet.
                           </TableCell>
-                          <TableCell>{formatAmount(team.spent)}</TableCell>
-                          <TableCell>
-                            {formatAmount(team.remainingPurse)}
-                          </TableCell>
-                          <TableCell>{team.playersCount}</TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        teamStats.map((team) => (
+                          <TableRow key={team.id} className="hover:bg-muted/30">
+                            <TableCell className="py-3">
+                              <Link
+                                className="text-sm font-medium text-primary"
+                                to={`/auction/teams/${team.id}`}
+                              >
+                                {formatTeamLabel(team)}
+                              </Link>
+                            </TableCell>
+                            <TableCell className="py-3 text-right font-medium">
+                              {formatAmount(team.spent)}
+                            </TableCell>
+                            <TableCell className="py-3 text-right font-medium">
+                              {formatAmount(team.remainingPurse)}
+                            </TableCell>
+                            <TableCell className="py-3 text-right font-medium">
+                              {team.playersCount}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

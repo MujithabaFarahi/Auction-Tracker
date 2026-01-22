@@ -25,12 +25,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatAmount } from "@/lib/format";
+import { formatAmount, formatTeamLabel } from "@/lib/format";
 import {
   PLAYER_ROLES,
   auctionStateDocRef,
   ensureAuctionState,
   ensureTournament,
+  deletePlayer,
   playersCollectionRef,
   savePlayer,
   saveTeam,
@@ -161,8 +162,9 @@ function SetupPage() {
   const canEditTeam = (team: Team) =>
     !auctionLive && team.remainingPurse === team.totalPurse;
 
-  const canEditPlayer = (player: Player) =>
-    !auctionLive && player.status === "AVAILABLE";
+  const canEditPlayer = (_player: Player) => true;
+  const canDeletePlayer = (player: Player) =>
+    auctionState?.currentPlayerId !== player.id;
 
   const handleTeamSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -242,6 +244,30 @@ function SetupPage() {
       setEditingPlayerId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save player.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeletePlayer = async (player: Player) => {
+    const confirmation = window.confirm(
+      `Delete ${player.name}?${player.status === "SOLD" ? " This will refund the team purse." : ""}`,
+    );
+    if (!confirmation) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await deletePlayer(player.id);
+      if (editingPlayerId === player.id) {
+        setEditingPlayerId(null);
+        setPlayerForm(emptyPlayerForm);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to delete player.",
+      );
     } finally {
       setSaving(false);
     }
@@ -342,7 +368,7 @@ function SetupPage() {
               />
             </div>
             <div className="flex items-end gap-2">
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving} isLoading={saving}>
                 Save tournament
               </Button>
               <span className="text-sm text-muted-foreground">
@@ -371,7 +397,7 @@ function SetupPage() {
                       name: event.target.value,
                     }))
                   }
-                  disabled={saving || auctionLive}
+                  disabled={saving}
                 />
               </div>
               <div className="space-y-2">
@@ -385,7 +411,7 @@ function SetupPage() {
                       captainName: event.target.value,
                     }))
                   }
-                  disabled={saving || auctionLive}
+                  disabled={saving}
                 />
               </div>
               <div className="space-y-2">
@@ -395,7 +421,11 @@ function SetupPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button type="submit" disabled={saving || auctionLive}>
+                <Button
+                  type="submit"
+                  disabled={saving || auctionLive}
+                  isLoading={saving}
+                >
                   {editingTeamId ? "Update team" : "Add team"}
                 </Button>
                 {editingTeamId ? (
@@ -433,7 +463,7 @@ function SetupPage() {
                 ) : (
                   teams.map((team) => (
                     <TableRow key={team.id}>
-                      <TableCell>{team.name}</TableCell>
+                      <TableCell>{formatTeamLabel(team)}</TableCell>
                       <TableCell>{team.captainName}</TableCell>
                       <TableCell>{formatAmount(team.totalPurse)}</TableCell>
                       <TableCell>{formatAmount(team.remainingPurse)}</TableCell>
@@ -479,7 +509,7 @@ function SetupPage() {
                       name: event.target.value,
                     }))
                   }
-                  disabled={saving || auctionLive}
+                  disabled={saving}
                 />
               </div>
               <div className="space-y-2">
@@ -493,7 +523,7 @@ function SetupPage() {
                       contactNumber: event.target.value,
                     }))
                   }
-                  disabled={saving || auctionLive}
+                  disabled={saving}
                 />
               </div>
               <div className="space-y-2">
@@ -551,7 +581,7 @@ function SetupPage() {
                           teamId: event.target.checked ? prev.teamId : "",
                         }))
                       }
-                      disabled={saving || auctionLive || teams.length === 0}
+                      disabled={saving || teams.length === 0}
                     />
                     <Label htmlFor="player-assign-team">
                       Assign player to a team
@@ -568,7 +598,7 @@ function SetupPage() {
                             teamId: value,
                           }))
                         }
-                        disabled={saving || auctionLive}
+                        disabled={saving}
                       >
                         <SelectTrigger id="player-team">
                           <SelectValue placeholder="Select team" />
@@ -576,7 +606,7 @@ function SetupPage() {
                         <SelectContent>
                           {teams.map((team) => (
                             <SelectItem key={team.id} value={team.id}>
-                              {team.name}
+                              {formatTeamLabel(team)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -586,7 +616,7 @@ function SetupPage() {
                 </>
               ) : null}
               <div className="flex items-center gap-2">
-                <Button type="submit" disabled={saving || auctionLive}>
+                <Button type="submit" disabled={saving} isLoading={saving}>
                   {editingPlayerId ? "Update player" : "Add player"}
                 </Button>
                 {editingPlayerId ? (
@@ -629,25 +659,36 @@ function SetupPage() {
                           <TableCell>{formatAmount(player.basePrice)}</TableCell>
                       <TableCell>{player.status}</TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={!canEditPlayer(player)}
-                          onClick={() => {
-                            setEditingPlayerId(player.id);
-                            setPlayerForm({
-                              name: player.name,
-                              contactNumber: player.contactNumber,
-                              role: player.role,
-                              basePrice: String(player.basePrice),
-                              assignToTeam: false,
-                              teamId: "",
-                            });
-                          }}
-                        >
-                          Edit
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={!canEditPlayer(player) || saving}
+                            onClick={() => {
+                              setEditingPlayerId(player.id);
+                              setPlayerForm({
+                                name: player.name,
+                                contactNumber: player.contactNumber,
+                                role: player.role,
+                                basePrice: String(player.basePrice),
+                                assignToTeam: false,
+                                teamId: "",
+                              });
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            disabled={!canDeletePlayer(player) || saving}
+                            onClick={() => handleDeletePlayer(player)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

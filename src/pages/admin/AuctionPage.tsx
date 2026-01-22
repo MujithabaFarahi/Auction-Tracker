@@ -1,14 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onSnapshot } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -21,13 +16,24 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatAmount } from "@/lib/format";
+import { formatAmount, formatTeamLabel } from "@/lib/format";
 import {
   auctionStateDocRef,
   deleteBidAtIndex,
@@ -53,6 +59,8 @@ function AuctionPage() {
   const [differenceAmount, setDifferenceAmount] = useState("1000");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const lastSuggestedBidRef = useRef<number>(0);
 
   useEffect(() => {
     void ensureAuctionState();
@@ -104,8 +112,7 @@ function AuctionPage() {
   );
 
   const leadingTeam = useMemo(
-    () =>
-      teams.find((team) => team.id === auctionState?.leadingTeamId) ?? null,
+    () => teams.find((team) => team.id === auctionState?.leadingTeamId) ?? null,
     [teams, auctionState?.leadingTeamId],
   );
 
@@ -119,19 +126,32 @@ function AuctionPage() {
   const lastBidTeamId = bidHistory.length
     ? bidHistory[bidHistory.length - 1].teamId
     : null;
+  const currentBidAmount = Number(auctionState?.currentBid ?? 0);
 
-  const differenceValue = Number(differenceAmount) || 0;
-  const currentBidValue = Number(auctionState?.currentBid ?? 0);
+  const differenceValue = Math.max(1000, Number(differenceAmount) || 0);
   const basePrice = Number(currentPlayer?.basePrice ?? 0);
-  const minBid = Math.max(basePrice, currentBidValue + differenceValue);
+  const minBid = Math.max(basePrice, currentBidAmount + differenceValue);
+
+  useEffect(() => {
+    if (auctionState?.currentPlayerId) {
+      setDifferenceAmount("1000");
+      lastSuggestedBidRef.current = 0;
+    }
+  }, [auctionState?.currentPlayerId]);
 
   useEffect(() => {
     const currentBidInput = Number(bidAmount || 0);
     if (!auctionLive) {
       return;
     }
-    if (!bidAmount || Number.isNaN(currentBidInput) || currentBidInput < minBid) {
+    const shouldAutofill =
+      !bidAmount ||
+      Number.isNaN(currentBidInput) ||
+      currentBidInput < minBid ||
+      currentBidInput === lastSuggestedBidRef.current;
+    if (shouldAutofill) {
       setBidAmount(minBid ? String(minBid) : "");
+      lastSuggestedBidRef.current = minBid;
     }
   }, [auctionLive, bidAmount, minBid]);
 
@@ -188,9 +208,7 @@ function AuctionPage() {
       return;
     }
     if (amount < minBid) {
-      setStatusMessage(
-        `Bid must be at least ${formatAmount(minBid)}.`,
-      );
+      setStatusMessage(`Bid must be at least ${formatAmount(minBid)}.`);
       return;
     }
     if (selectedTeam && selectedTeam.remainingPurse < amount) {
@@ -211,6 +229,18 @@ function AuctionPage() {
   };
 
   const handleMarkSold = async () => {
+    if (!auctionState?.currentPlayerId || !currentPlayer) {
+      setStatusMessage("Select a player before marking sold.");
+      return;
+    }
+    if (!leadingTeam) {
+      setStatusMessage("No leading team yet. Place a bid first.");
+      return;
+    }
+    if (!currentBidAmount) {
+      setStatusMessage("Bid amount must be greater than 0 to mark sold.");
+      return;
+    }
     setSubmitting(true);
     setStatusMessage(null);
     try {
@@ -221,8 +251,31 @@ function AuctionPage() {
       );
     } finally {
       setSubmitting(false);
+      setConfirmOpen(false);
     }
   };
+
+  const adjustDifference = (delta: number) => {
+    setDifferenceAmount((prev) => {
+      const current = Number(prev) || 0;
+      const next = Math.max(1000, current + delta);
+      const rounded = Math.round(next / 1000) * 1000;
+      return String(rounded);
+    });
+  };
+
+  const normalizeDifference = (value: string) => {
+    const numericValue = Number(value) || 0;
+    const rounded = Math.round(numericValue / 1000) * 1000;
+    return String(Math.max(1000, rounded));
+  };
+
+  const canMarkSold =
+    auctionLive &&
+    !submitting &&
+    Boolean(currentPlayer) &&
+    Boolean(leadingTeam) &&
+    currentBidAmount > 0;
 
   const handleDeleteBid = async (index: number) => {
     setSubmitting(true);
@@ -259,7 +312,7 @@ function AuctionPage() {
                 >
                   <SelectTrigger
                     id="current-player"
-                    className="min-w-[240px] flex-1"
+                    className="min-w-60 flex-1"
                   >
                     <SelectValue placeholder="Select an available player" />
                   </SelectTrigger>
@@ -303,7 +356,9 @@ function AuctionPage() {
                 <p className="text-sm">
                   Base price:{" "}
                   <span className="font-medium">
-                    {currentPlayer ? formatAmount(currentPlayer.basePrice) : "-"}
+                    {currentPlayer
+                      ? formatAmount(currentPlayer.basePrice)
+                      : "-"}
                   </span>
                 </p>
               </div>
@@ -315,7 +370,8 @@ function AuctionPage() {
                   {formatAmount(auctionState?.currentBid ?? 0)}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Leading team: {leadingTeam ? leadingTeam.name : "None"}
+                  Leading team:{" "}
+                  {leadingTeam ? formatTeamLabel(leadingTeam) : "None"}
                 </p>
               </div>
             </div>
@@ -330,20 +386,21 @@ function AuctionPage() {
                     disabled={!auctionLive || submitting}
                   >
                     <SelectTrigger id="bid-team">
-                    <SelectValue placeholder="Select a team" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {teams.map((team) => (
-                      <SelectItem
-                        key={team.id}
-                        value={team.id}
-                        disabled={team.id === lastBidTeamId}
-                      >
-                        {team.name} · {formatAmount(team.remainingPurse)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      <SelectValue placeholder="Select a team" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teams.map((team) => (
+                        <SelectItem
+                          key={team.id}
+                          value={team.id}
+                          disabled={team.id === lastBidTeamId}
+                        >
+                          {formatTeamLabel(team)} ·{" "}
+                          {formatAmount(team.remainingPurse)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="bid-amount">Bid amount</Label>
@@ -357,29 +414,51 @@ function AuctionPage() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Minimum: {formatAmount(minBid)}
-                    {selectedTeam ? ` · Remaining: ${formatAmount(selectedTeam.remainingPurse)}` : ""}
+                    {selectedTeam
+                      ? ` · Remaining: ${formatAmount(selectedTeam.remainingPurse)}`
+                      : ""}
                   </p>
                 </div>
               </div>
-              <div className="grid gap-2 md:grid-cols-[200px_1fr]">
+
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="bid-diff">Bid difference</Label>
                   <Input
                     id="bid-diff"
                     type="number"
-                    min={1}
+                    min={1000}
+                    step={1000}
                     value={differenceAmount}
-                    onChange={(event) => setDifferenceAmount(event.target.value)}
+                    onChange={(event) =>
+                      setDifferenceAmount(event.target.value)
+                    }
+                    onBlur={(event) =>
+                      setDifferenceAmount(
+                        normalizeDifference(event.target.value),
+                      )
+                    }
                     disabled={!auctionLive || submitting}
                   />
                 </div>
-                <div className="flex flex-wrap items-end gap-2">
-                  {[1000, 2000, 5000, 10000].map((value) => (
+                <div className="grid grid-cols-4 gap-2">
+                  {[-1000, -2000, -5000, -10000].map((value) => (
                     <Button
-                      key={value}
+                      key={`minus-${value}`}
                       type="button"
                       variant="outline"
-                      onClick={() => setDifferenceAmount(String(value))}
+                      onClick={() => adjustDifference(value)}
+                      disabled={!auctionLive || submitting}
+                    >
+                      {formatAmount(value)}
+                    </Button>
+                  ))}
+                  {[1000, 2000, 5000, 10000].map((value) => (
+                    <Button
+                      key={`plus-${value}`}
+                      type="button"
+                      variant="outline"
+                      onClick={() => adjustDifference(value)}
                       disabled={!auctionLive || submitting}
                     >
                       +{formatAmount(value)}
@@ -387,18 +466,88 @@ function AuctionPage() {
                   ))}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="submit" disabled={!auctionLive || submitting}>
+
+              <div className="flex flex-wrap items-center gap-2 justify-end py-2">
+                <Button
+                  type="submit"
+                  disabled={!auctionLive || submitting}
+                  isLoading={submitting}
+                >
                   Place bid
                 </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleMarkSold}
-                  disabled={!auctionLive || submitting}
-                >
-                  Mark SOLD
-                </Button>
+                <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      disabled={!canMarkSold}
+                    >
+                      Mark SOLD
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Confirm sale</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will finalize the player sale and update team
+                        budgets.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                      <p className="font-medium">Sale summary</p>
+                      <p className="text-muted-foreground">
+                        Player:{" "}
+                        <span className="font-medium text-foreground">
+                          {currentPlayer?.name ?? "-"}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Team:{" "}
+                        <span className="font-medium text-foreground">
+                          {leadingTeam ? formatTeamLabel(leadingTeam) : "-"}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        Final price:{" "}
+                        <span className="font-medium text-foreground">
+                          {formatAmount(currentBidAmount)}
+                        </span>
+                      </p>
+                    </div>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={submitting}>
+                        Cancel
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleMarkSold}
+                        disabled={!canMarkSold}
+                      >
+                        Confirm SOLD
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <p className="font-medium">Sale summary</p>
+                <p className="text-muted-foreground">
+                  Player:{" "}
+                  <span className="font-medium text-foreground">
+                    {currentPlayer?.name ?? "-"}
+                  </span>
+                </p>
+                <p className="text-muted-foreground">
+                  Team:{" "}
+                  <span className="font-medium text-foreground">
+                    {leadingTeam ? formatTeamLabel(leadingTeam) : "-"}
+                  </span>
+                </p>
+                <p className="text-muted-foreground">
+                  Final price:{" "}
+                  <span className="font-medium text-foreground">
+                    {formatAmount(currentBidAmount)}
+                  </span>
+                </p>
               </div>
             </form>
 
@@ -424,14 +573,25 @@ function AuctionPage() {
                     key={`${bid.teamId}-${bid.timestamp}-${index}`}
                     className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
                   >
-                    <span>{bid.teamName}</span>
+                    <span>
+                      {formatTeamLabel(
+                        teams.find((team) => team.id === bid.teamId) ?? {
+                          id: bid.teamId,
+                          name: bid.teamName,
+                          captainName: "",
+                          totalPurse: 0,
+                          remainingPurse: 0,
+                          spentAmount: 0,
+                        },
+                      )}
+                    </span>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">
                         {formatAmount(bid.amount)}
                       </span>
                       <Button
                         type="button"
-                        size="icon-sm"
+                        size="icon"
                         variant="outline"
                         onClick={() => handleDeleteBid(index)}
                         disabled={submitting}
@@ -453,32 +613,55 @@ function AuctionPage() {
           <CardTitle>Team Budgets</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Team</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Remaining</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {teams.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-muted-foreground">
-                    Add teams in setup to track budgets.
-                  </TableCell>
+          <div className="overflow-hidden rounded-lg border bg-background/70">
+            <Table>
+              <TableHeader className="bg-muted/60">
+                <TableRow className="hover:bg-muted/60">
+                  <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Team
+                  </TableHead>
+                  <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Total
+                  </TableHead>
+                  <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Spent
+                  </TableHead>
+                  <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Remaining
+                  </TableHead>
                 </TableRow>
-              ) : (
-                teams.map((team) => (
-                  <TableRow key={team.id}>
-                    <TableCell>{team.name}</TableCell>
-                    <TableCell>{formatAmount(team.totalPurse)}</TableCell>
-                    <TableCell>{formatAmount(team.remainingPurse)}</TableCell>
+              </TableHeader>
+              <TableBody>
+                {teams.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={4}
+                      className="py-6 text-center text-muted-foreground"
+                    >
+                      Add teams in setup to track budgets.
+                    </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  teams.map((team) => (
+                    <TableRow key={team.id} className="hover:bg-muted/30">
+                      <TableCell className="py-3">
+                        {formatTeamLabel(team)}
+                      </TableCell>
+                      <TableCell className="py-3 text-right font-medium">
+                        {formatAmount(team.totalPurse)}
+                      </TableCell>
+                      <TableCell className="py-3 text-right font-medium text-destructive">
+                        {formatAmount(team.spentAmount)}
+                      </TableCell>
+                      <TableCell className="py-3 text-right font-medium text-green-500">
+                        {formatAmount(team.remainingPurse)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

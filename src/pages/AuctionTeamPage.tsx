@@ -17,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatAmount } from "@/lib/format";
+import { formatAmount, formatTeamLabel } from "@/lib/format";
 import { db } from "@/lib/firebase";
 import { playersCollectionRef, type Player, type Team } from "@/lib/firestore";
 
@@ -72,11 +72,8 @@ function AuctionTeamPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold">
-            {team?.name ?? "Team"}
+            {team ? formatTeamLabel(team) : "Team"}
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Captain: {team?.captainName ?? "-"}
-          </p>
         </div>
         <Link to="/auction/view" className="text-sm font-medium text-primary">
           Back to auction

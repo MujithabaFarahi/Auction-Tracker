@@ -164,6 +164,40 @@ export async function updatePlayer(
   await updateDoc(ref, input);
 }
 
+export async function deletePlayer(playerId: string) {
+  await runTransaction(db, async (transaction) => {
+    const playerRef = doc(db, "players", playerId);
+    const playerSnap = await transaction.get(playerRef);
+    if (!playerSnap.exists()) {
+      throw new Error("Player not found.");
+    }
+    const playerData = playerSnap.data() as Player;
+
+    if (
+      playerData.status === "SOLD" &&
+      playerData.soldToTeamId &&
+      playerData.soldPrice !== null
+    ) {
+      const teamRef = doc(db, "teams", playerData.soldToTeamId);
+      const teamSnap = await transaction.get(teamRef);
+      if (!teamSnap.exists()) {
+        throw new Error("Team not found for sold player.");
+      }
+      const teamData = teamSnap.data() as Team;
+      const refund = Number(playerData.soldPrice) || 0;
+      const spentAmount = Number(teamData.spentAmount) || 0;
+      const remainingPurse = Number(teamData.remainingPurse) || 0;
+
+      transaction.update(teamRef, {
+        remainingPurse: remainingPurse + refund,
+        spentAmount: Math.max(0, spentAmount - refund),
+      });
+    }
+
+    transaction.delete(playerRef);
+  });
+}
+
 export async function setCurrentPlayer(playerId: string) {
   await updateDoc(doc(db, "players", playerId), { bidHistory: [] });
   await setDoc(
