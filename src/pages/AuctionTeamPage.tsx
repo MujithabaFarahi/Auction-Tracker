@@ -141,7 +141,7 @@ function AuctionTeamPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader>
             <CardTitle>Total purse</CardTitle>
@@ -385,7 +385,11 @@ function AuctionTeamPage() {
                 <p className="text-sm text-destructive">{editError}</p>
               ) : null}
               <div className="flex items-center gap-2">
-                <Button type="submit" disabled={editSaving} isLoading={editSaving}>
+                <Button
+                  type="submit"
+                  disabled={editSaving}
+                  isLoading={editSaving}
+                >
                   Save changes
                 </Button>
                 <Button
