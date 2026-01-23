@@ -69,14 +69,14 @@ function PlayerCard({
         )}
       </CardHeader>
       {variant === "completed" ? (
-        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
-          <div className="rounded-md border bg-muted/30 p-3">
+        <CardContent className="grid gap-3 text-sm grid-cols-2">
+          <div className="rounded-md text-center p-1">
             <p className="text-xs uppercase text-muted-foreground">
               Base price
             </p>
             <p className="text-lg font-semibold">{basePrice}</p>
           </div>
-          <div className="rounded-md border bg-muted/30 p-3">
+          <div className="rounded-md text-center p-1">
             <p className="text-xs uppercase text-muted-foreground">
               Final price
             </p>

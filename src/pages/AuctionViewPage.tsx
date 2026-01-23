@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { onSnapshot } from "firebase/firestore";
 
 import { Badge } from "@/components/ui/badge";
@@ -268,43 +268,38 @@ function AuctionViewPage() {
                     />
                   </div>
 
-                  <div>
-                    <h3 className="text-sm font-semibold">Bid history</h3>
-                    <div className="mt-2 space-y-2">
-                      {auctionState?.bidHistory?.length ? (
-                        [...auctionState.bidHistory]
-                          .reverse()
-                          .map((bid, index) => (
-                            <div
-                              key={`${bid.teamId}-${bid.timestamp}-${index}`}
-                              className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm"
-                            >
-                              <span>
-                                {formatTeamLabel(
-                                  teams.find(
-                                    (team) => team.id === bid.teamId,
-                                  ) ?? {
-                                    id: bid.teamId,
-                                    name: bid.teamName,
-                                    captainName: "",
-                                    totalPurse: 0,
-                                    remainingPurse: 0,
-                                    spentAmount: 0,
-                                  },
-                                )}
-                              </span>
-                              <span className="font-semibold">
-                                {formatAmount(bid.amount)}
-                              </span>
-                            </div>
-                          ))
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          No bids yet. Updates appear live.
-                        </p>
-                      )}
-                    </div>
-                  </div>
+                  {auctionState?.bidHistory?.length ? (
+                    [...auctionState.bidHistory].reverse().map((bid, index) => (
+                      <div key={`${bid.teamId}-${bid.timestamp}-${index}`}>
+                        <h3 className="text-sm font-semibold">Bid history</h3>
+                        <div className="mt-2 space-y-2">
+                          <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm">
+                            <span>
+                              {formatTeamLabel(
+                                teams.find(
+                                  (team) => team.id === bid.teamId,
+                                ) ?? {
+                                  id: bid.teamId,
+                                  name: bid.teamName,
+                                  captainName: "",
+                                  totalPurse: 0,
+                                  remainingPurse: 0,
+                                  spentAmount: 0,
+                                },
+                              )}
+                            </span>
+                            <span className="font-semibold">
+                              {formatAmount(bid.amount)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No bids yet. Updates appear live.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -398,63 +393,25 @@ function AuctionViewPage() {
                     (item) => item.id === player.soldToTeamId,
                   );
                   return (
-                    <Card
-                      key={player.id}
-                      className="cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md p-3"
+                    <PlayerCard
+                      name={player.name}
+                      role={player.role}
+                      badge="Sold"
+                      teamLabel={team ? formatTeamLabel(team) : undefined}
+                      basePrice={formatAmount(player.basePrice)}
+                      finalPrice={
+                        player.soldPrice ? formatAmount(player.soldPrice) : "-"
+                      }
+                      variant="completed"
                       onClick={() => navigate(`/auction/players/${player.id}`)}
-                    >
-                      <CardHeader className="px-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <CardTitle className="text-base">
-                              {player.name}
-                            </CardTitle>
-                            <p className="text-xs text-muted-foreground">
-                              {player.role}
-                            </p>
-                          </div>
-                          <Badge className="shrink-0">Sold</Badge>
-                        </div>
-                        <div className="text-sm">
-                          <p className="text-xs uppercase text-muted-foreground">
-                            Team
-                          </p>
-                          {team ? (
-                            <Link
-                              className="text-sm font-medium text-primary"
-                              to={`/auction/teams/${team.id}`}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              {formatTeamLabel(team)}
-                            </Link>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              -
-                            </span>
-                          )}
-                        </div>
-                      </CardHeader>
-                      <CardContent className="grid gap-3 text-sm grid-cols-2 px-2 pb-3">
-                        <div className="grid text-center">
-                          <p className="text-xs uppercase text-muted-foreground">
-                            Base price
-                          </p>
-                          <p className="text-lg font-semibold">
-                            {formatAmount(player.basePrice)}
-                          </p>
-                        </div>
-                        <div className="grid text-center">
-                          <p className="text-xs uppercase text-muted-foreground">
-                            Final price
-                          </p>
-                          <p className="text-lg font-semibold">
-                            {player.soldPrice
-                              ? formatAmount(player.soldPrice)
-                              : "-"}
-                          </p>
-                        </div>
-                      </CardContent>
-                    </Card>
+                      onTeamClick={(event) => {
+                        if (!team) {
+                          return;
+                        }
+                        event.stopPropagation();
+                        navigate(`/auction/teams/${team.id}`);
+                      }}
+                    />
                   );
                 })}
               </div>
