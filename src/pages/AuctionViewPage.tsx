@@ -28,6 +28,10 @@ import {
 import { ThemeToggle } from "@/theme/ThemeToggle";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { LiveInfoCard } from "@/components/auction/LiveInfoCard";
+import { PlayerCard } from "@/components/auction/PlayerCard";
+import { PlayerTile } from "@/components/auction/PlayerTile";
+import { TeamCard } from "@/components/auction/TeamCard";
 
 type CompletedSort = "timeDesc" | "timeAsc" | "priceDesc" | "priceAsc";
 type PlayersSort =
@@ -224,47 +228,44 @@ function AuctionViewPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded-md border bg-background p-3">
-                      <p className="text-xs uppercase text-muted-foreground">
-                        Current player
-                      </p>
-                      <p className="text-base font-semibold">
-                        {currentPlayer
+                    <LiveInfoCard
+                      title="Current player"
+                      primary={
+                        currentPlayer
                           ? currentPlayer.name
-                          : "Awaiting selection"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {currentPlayer ? currentPlayer.role : "Not started"}
-                      </p>
-                      <p className="text-sm">
-                        Base price:{" "}
-                        <span className="font-medium">
-                          {currentPlayer
-                            ? formatAmount(currentPlayer.basePrice)
-                            : "-"}
-                        </span>
-                      </p>
-                      {currentPlayer?.regularTeam ? (
-                        <p className="text-sm text-muted-foreground">
-                          Regular team:{" "}
-                          <span className="font-medium text-foreground">
-                            {currentPlayer.regularTeam}
-                          </span>
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="rounded-md border bg-background p-3">
-                      <p className="text-xs uppercase text-muted-foreground">
-                        Current bid
-                      </p>
-                      <p className="text-2xl font-semibold">
-                        {formatAmount(auctionState?.currentBid ?? 0)}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Leading team:{" "}
-                        {leadingTeam ? formatTeamLabel(leadingTeam) : "None"}
-                      </p>
-                    </div>
+                          : "Awaiting selection"
+                      }
+                      secondary={
+                        currentPlayer ? currentPlayer.role : "Not started"
+                      }
+                      meta={
+                        <>
+                          <p>
+                            Base price:{" "}
+                            <span className="font-medium">
+                              {currentPlayer
+                                ? formatAmount(currentPlayer.basePrice)
+                                : "-"}
+                            </span>
+                          </p>
+                          {currentPlayer?.regularTeam ? (
+                            <p className="text-muted-foreground">
+                              Regular team:{" "}
+                              <span className="font-medium text-foreground">
+                                {currentPlayer.regularTeam}
+                              </span>
+                            </p>
+                          ) : null}
+                        </>
+                      }
+                    />
+                    <LiveInfoCard
+                      title="Current bid"
+                      primary={formatAmount(auctionState?.currentBid ?? 0)}
+                      secondary={`Leading team: ${
+                        leadingTeam ? formatTeamLabel(leadingTeam) : "None"
+                      }`}
+                    />
                   </div>
 
                   <div>
@@ -314,35 +315,41 @@ function AuctionViewPage() {
                 <CardContent>
                   {lastCompletedPlayer ? (
                     <div className="space-y-2">
-                      <div className="rounded-md border bg-background p-3">
-                        <p className="text-base font-semibold">
-                          {lastCompletedPlayer.name}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {lastCompletedPlayer.role}
-                        </p>
-                        <p className="text-sm">
-                          Sold for{" "}
-                          <span className="font-semibold">
-                            {formatAmount(lastCompletedPlayer.soldPrice ?? 0)}
-                          </span>
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Team:{" "}
-                          {formatTeamLabel(
-                            teams.find(
-                              (team) =>
-                                team.id === lastCompletedPlayer.soldToTeamId,
-                            ) ?? null,
-                          )}
-                        </p>
-                      </div>
-                      <Link
-                        to={`/auction/players/${lastCompletedPlayer.id}`}
-                        className="text-sm font-medium text-primary"
-                      >
-                        View player details
-                      </Link>
+                      {(() => {
+                        const team = teams.find(
+                          (item) =>
+                            item.id === lastCompletedPlayer.soldToTeamId,
+                        );
+                        return (
+                          <PlayerCard
+                            name={lastCompletedPlayer.name}
+                            role={lastCompletedPlayer.role}
+                            badge="Sold"
+                            teamLabel={team ? formatTeamLabel(team) : undefined}
+                            basePrice={formatAmount(
+                              lastCompletedPlayer.basePrice,
+                            )}
+                            finalPrice={
+                              lastCompletedPlayer.soldPrice
+                                ? formatAmount(lastCompletedPlayer.soldPrice)
+                                : "-"
+                            }
+                            variant="completed"
+                            onClick={() =>
+                              navigate(
+                                `/auction/players/${lastCompletedPlayer.id}`,
+                              )
+                            }
+                            onTeamClick={(event) => {
+                              if (!team) {
+                                return;
+                              }
+                              event.stopPropagation();
+                              navigate(`/auction/teams/${team.id}`);
+                            }}
+                          />
+                        );
+                      })()}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
@@ -511,28 +518,13 @@ function AuctionViewPage() {
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
                 {filteredPlayers.map((player) => (
-                  <div
+                  <PlayerTile
                     key={player.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border bg-background/70 p-3 transition hover:-translate-y-0.5 hover:bg-muted/20 hover:shadow-sm cursor-pointer"
+                    name={player.name}
+                    role={player.role}
+                    basePrice={formatAmount(player.basePrice)}
                     onClick={() => navigate(`/auction/players/${player.id}`)}
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-primary capitalize">
-                        {player.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {player.role}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs uppercase text-muted-foreground">
-                        Base Price
-                      </p>
-                      <p className="text-sm font-semibold">
-                        {formatAmount(player.basePrice)}
-                      </p>
-                    </div>
-                  </div>
+                  />
                 ))}
               </div>
             )}
@@ -547,38 +539,14 @@ function AuctionViewPage() {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {teamStats.map((team) => (
-                  <Card
+                  <TeamCard
                     key={team.id}
-                    className="cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md"
+                    name={formatTeamLabel(team)}
+                    spent={formatAmount(team.spent)}
+                    remaining={formatAmount(team.remainingPurse)}
+                    playersCount={team.playersCount}
                     onClick={() => navigate(`/auction/teams/${team.id}`)}
-                  >
-                    <CardHeader className="gap-0">
-                      <CardTitle className="text-base">
-                        {formatTeamLabel(team)}
-                      </CardTitle>
-                      <p className="text-xs text-muted-foreground">
-                        Players: {team.playersCount} / 9
-                      </p>
-                    </CardHeader>
-                    <CardContent className="grid gap-3 text-sm grid-cols-2 justify-evenly">
-                      <div className="grid text-center">
-                        <p className="text-xs uppercase text-muted-foreground">
-                          Spent
-                        </p>
-                        <p className="text-lg font-semibold">
-                          {formatAmount(team.spent)}
-                        </p>
-                      </div>
-                      <div className="grid text-center">
-                        <p className="text-xs uppercase text-muted-foreground">
-                          Remaining
-                        </p>
-                        <p className="text-lg font-semibold">
-                          {formatAmount(team.remainingPurse)}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  />
                 ))}
               </div>
             )}

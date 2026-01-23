@@ -6,14 +6,6 @@ import { Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -42,6 +34,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatAmount, formatTeamLabel } from "@/lib/format";
+import { LiveInfoCard } from "@/components/auction/LiveInfoCard";
+import { TeamCard } from "@/components/auction/TeamCard";
 import {
   auctionStateDocRef,
   deleteBidAtIndex,
@@ -137,6 +131,19 @@ function AuctionPage() {
     () => teams.find((team) => team.id === selectedTeamId) ?? null,
     [teams, selectedTeamId],
   );
+
+  const teamStats = useMemo(() => {
+    const counts: Record<string, number> = {};
+    players.forEach((player) => {
+      if (player.status === "SOLD" && player.soldToTeamId) {
+        counts[player.soldToTeamId] = (counts[player.soldToTeamId] ?? 0) + 1;
+      }
+    });
+    return teams.map((team) => ({
+      ...team,
+      playersCount: counts[team.id] ?? 0,
+    }));
+  }, [teams, players]);
 
   const bidHistory = auctionState?.bidHistory ?? [];
   const auctionLive = auctionState?.status === "LIVE";
@@ -390,45 +397,49 @@ function AuctionPage() {
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-md border p-3">
-                <p className="text-xs uppercase text-muted-foreground">
-                  Current player
-                </p>
-                <p className="text-base font-semibold">
-                  {currentPlayer ? currentPlayer.name : "Not selected"}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {currentPlayer ? currentPlayer.role : "Awaiting selection"}
-                </p>
-                <p className="text-sm">
-                  Base price:{" "}
-                  <span className="font-medium">
-                    {currentPlayer
-                      ? formatAmount(currentPlayer.basePrice)
-                      : "-"}
-                  </span>
-                </p>
-                {currentPlayer?.regularTeam ? (
-                  <p className="text-sm text-muted-foreground">
-                    Regular team:{" "}
-                    <span className="font-medium text-foreground">
-                      {currentPlayer.regularTeam}
-                    </span>
-                  </p>
-                ) : null}
-              </div>
-              <div className="rounded-md border p-3">
-                <p className="text-xs uppercase text-muted-foreground">
-                  Current bid
-                </p>
-                <p className="text-2xl font-semibold">
-                  {formatAmount(auctionState?.currentBid ?? 0)}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Leading team:{" "}
-                  {leadingTeam ? formatTeamLabel(leadingTeam) : "None"}
-                </p>
-              </div>
+              <LiveInfoCard
+                title="Current player"
+                primary={currentPlayer ? currentPlayer.name : "Not selected"}
+                secondary={
+                  currentPlayer ? currentPlayer.role : "Awaiting selection"
+                }
+                meta={
+                  <div className="space-y-0.5">
+                    <p>
+                      Base price:{" "}
+                      <span className="font-medium">
+                        {currentPlayer
+                          ? formatAmount(currentPlayer.basePrice)
+                          : "-"}
+                      </span>
+                    </p>
+                    {currentPlayer?.regularTeam ? (
+                      <p className="text-muted-foreground">
+                        Regular team:{" "}
+                        <span className="font-medium text-foreground">
+                          {currentPlayer.regularTeam}
+                        </span>
+                      </p>
+                    ) : null}
+
+                    {currentPlayer?.contactNumber ? (
+                      <p className="text-muted-foreground">
+                        Contact number:{" "}
+                        <span className="font-medium text-foreground">
+                          {currentPlayer.contactNumber}
+                        </span>
+                      </p>
+                    ) : null}
+                  </div>
+                }
+              />
+              <LiveInfoCard
+                title="Current bid"
+                primary={formatAmount(auctionState?.currentBid ?? 0)}
+                secondary={`Leading team: ${
+                  leadingTeam ? formatTeamLabel(leadingTeam) : "None"
+                }`}
+              />
             </div>
 
             <form className="space-y-3" onSubmit={handlePlaceBid}>
@@ -670,55 +681,23 @@ function AuctionPage() {
           <CardTitle>Team Budgets</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-lg border bg-background/70">
-            <Table>
-              <TableHeader className="bg-muted/60">
-                <TableRow className="hover:bg-muted/60">
-                  <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Team
-                  </TableHead>
-                  <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Total
-                  </TableHead>
-                  <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Spent
-                  </TableHead>
-                  <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Remaining
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {teams.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={4}
-                      className="py-6 text-center text-muted-foreground"
-                    >
-                      Add teams in setup to track budgets.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  teams.map((team) => (
-                    <TableRow key={team.id} className="hover:bg-muted/30">
-                      <TableCell className="py-3">
-                        {formatTeamLabel(team)}
-                      </TableCell>
-                      <TableCell className="py-3 text-right font-medium">
-                        {formatAmount(team.totalPurse)}
-                      </TableCell>
-                      <TableCell className="py-3 text-right font-medium text-destructive">
-                        {formatAmount(team.spentAmount)}
-                      </TableCell>
-                      <TableCell className="py-3 text-right font-medium text-green-500">
-                        {formatAmount(team.remainingPurse)}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          {teamStats.length === 0 ? (
+            <div className="rounded-lg border bg-background/70 py-6 text-center text-muted-foreground">
+              Add teams in setup to track budgets.
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {teamStats.map((team) => (
+                <TeamCard
+                  key={team.id}
+                  name={formatTeamLabel(team)}
+                  spent={formatAmount(team.spentAmount)}
+                  remaining={formatAmount(team.remainingPurse)}
+                  playersCount={team.playersCount}
+                />
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
