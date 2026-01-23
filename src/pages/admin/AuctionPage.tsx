@@ -50,6 +50,7 @@ import {
   type Player,
   type Team,
 } from "@/lib/firestore";
+import { useNavigate } from "react-router-dom";
 
 function AuctionPage() {
   const [teams, setTeams] = useState<Team[]>([]);
@@ -64,6 +65,8 @@ function AuctionPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [playerCommandOpen, setPlayerCommandOpen] = useState(false);
   const lastSuggestedBidRef = useRef<number>(0);
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     void ensureAuctionState();
@@ -694,6 +697,7 @@ function AuctionPage() {
                   spent={formatAmount(team.spentAmount)}
                   remaining={formatAmount(team.remainingPurse)}
                   playersCount={team.playersCount}
+                  onClick={() => navigate(`/auction/teams/${team.id}`)}
                 />
               ))}
             </div>
