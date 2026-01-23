@@ -25,14 +25,23 @@ import {
 import { formatAmount, formatTeamLabel } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/firebase";
-import { playersCollectionRef, type Player, type Team } from "@/lib/firestore";
+import {
+  assignPlayerToTeamNoPurse,
+  playersCollectionRef,
+  tournamentDocRef,
+  type Player,
+  type Team,
+  type Tournament,
+} from "@/lib/firestore";
 import { ArrowLeft } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 function AuctionTeamPage() {
   const { teamId } = useParams();
   const { user } = useAuth();
   const [team, setTeam] = useState<Team | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [tournament, setTournament] = useState<Tournament | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState("");
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
@@ -87,6 +96,17 @@ function AuctionTeamPage() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = onSnapshot(tournamentDocRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        setTournament(null);
+        return;
+      }
+      setTournament(snapshot.data() as Tournament);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const teamPlayers = useMemo(() => {
     if (!teamId) {
       return [];
@@ -110,344 +130,376 @@ function AuctionTeamPage() {
 
   if (!teamId) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-6">
-        <p className="text-sm text-muted-foreground">Team not found.</p>
+      <div className="flex min-h-svh flex-col">
+        <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">
+          <p className="text-sm text-muted-foreground">Team not found.</p>
+        </div>
+        <footer className="mt-auto border-t pt-4 text-center text-xs text-muted-foreground">
+          Powered by{" "}
+          <a
+            href="https://teqgrow.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            Teqgrow
+          </a>
+        </footer>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-6">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold">
-            {team ? formatTeamLabel(team) : "Team"}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {user ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsEditing((prev) => !prev)}
-              disabled={editSaving}
-            >
-              {isEditing ? "Cancel edit" : "Edit team"}
-            </Button>
-          ) : null}
-          <Button variant="ghost" onClick={() => navigate(-1)}>
-            <ArrowLeft /> Back
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Total purse</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-semibold">
-              {formatAmount(team?.totalPurse ?? 0)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Spent</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-semibold">
-              {formatAmount(
-                team?.spentAmount ??
-                  (team?.totalPurse ?? 0) - (team?.remainingPurse ?? 0),
-              )}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Remaining</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-semibold">
-              {formatAmount(team?.remainingPurse ?? 0)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Players</CardTitle>
-          </CardHeader>
-          <CardContent>{teamPlayers.length} / 9</CardContent>
-        </Card>
-      </div>
-
-      {user ? (
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Add player (Admin)</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <Label>Search team-less players</Label>
+    <div className="flex min-h-svh flex-col">
+      <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold">
+              {team ? formatTeamLabel(team) : "Team"}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            {user ? (
               <Button
                 type="button"
                 variant="outline"
-                className="w-full justify-between"
-                onClick={() => setPlayerCommandOpen(true)}
-                disabled={assigning}
+                onClick={() => setIsEditing((prev) => !prev)}
+                disabled={editSaving}
               >
-                {selectedPlayer
-                  ? `${selectedPlayer.name} · ${selectedPlayer.role}`
-                  : "Select player"}
+                {isEditing ? "Cancel edit" : "Edit team"}
               </Button>
-              <CommandDialog
-                open={playerCommandOpen}
-                onOpenChange={setPlayerCommandOpen}
-                title="Select player"
-                description="Search team-less players"
-              >
-                <CommandInput placeholder="Search players..." />
-                <CommandList>
-                  <CommandEmpty>No available players.</CommandEmpty>
-                  <CommandGroup>
-                    {availablePlayers.map((player) => (
-                      <CommandItem
-                        key={player.id}
-                        value={`${player.name} ${player.role}`}
-                        onSelect={() => {
-                          setSelectedPlayerId(player.id);
-                          setPlayerCommandOpen(false);
-                        }}
-                      >
-                        <span className="font-medium">{player.name}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {player.role}
-                        </span>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </CommandDialog>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                onClick={async () => {
-                  if (!teamId || !selectedPlayerId) {
-                    setAssignError("Select a player to add.");
-                    return;
-                  }
-                  setAssignError(null);
-                  setAssigning(true);
-                  try {
-                    await updateDoc(doc(db, "players", selectedPlayerId), {
-                      status: "SOLD",
-                      soldToTeamId: teamId,
-                      soldPrice: 0,
-                      soldAt: Date.now(),
-                    });
-                    setSelectedPlayerId("");
-                  } catch (err) {
-                    setAssignError(
-                      err instanceof Error
-                        ? err.message
-                        : "Unable to add player.",
-                    );
-                  } finally {
-                    setAssigning(false);
-                  }
-                }}
-                disabled={!selectedPlayerId || assigning}
-                isLoading={assigning}
-              >
-                Add to team (no purse impact)
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                Assigns player with price 0.
-              </span>
-            </div>
-            {assignError ? (
-              <p className="text-sm text-destructive">{assignError}</p>
             ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
+            <Button variant="ghost" onClick={() => navigate(-1)}>
+              <ArrowLeft /> Back
+            </Button>
+          </div>
+        </div>
 
-      {user && isEditing ? (
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Edit Team (Admin)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="space-y-3"
-              onSubmit={async (event) => {
-                event.preventDefault();
-                if (!team) {
-                  return;
-                }
-                setEditError(null);
-                const spentAmount = Number(editForm.spentAmount || 0);
-                const remainingPurse = Number(editForm.remainingPurse || 0);
-                if (!editForm.name.trim() || !editForm.captainName.trim()) {
-                  setEditError("Team name and captain are required.");
-                  return;
-                }
-                if (Number.isNaN(spentAmount) || Number.isNaN(remainingPurse)) {
-                  setEditError("Spent and remaining must be valid numbers.");
-                  return;
-                }
-                setEditSaving(true);
-                try {
-                  await updateDoc(doc(db, "teams", team.id), {
-                    name: editForm.name.trim(),
-                    captainName: editForm.captainName.trim(),
-                    spentAmount,
-                    remainingPurse,
-                  });
-                  setIsEditing(false);
-                } catch (err) {
-                  setEditError(
-                    err instanceof Error
-                      ? err.message
-                      : "Unable to update team.",
-                  );
-                } finally {
-                  setEditSaving(false);
-                }
-              }}
-            >
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-team-name">Team name</Label>
-                  <Input
-                    id="edit-team-name"
-                    value={editForm.name}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({
-                        ...prev,
-                        name: event.target.value,
-                      }))
-                    }
-                    disabled={editSaving}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-captain-name">Captain name</Label>
-                  <Input
-                    id="edit-captain-name"
-                    value={editForm.captainName}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({
-                        ...prev,
-                        captainName: event.target.value,
-                      }))
-                    }
-                    disabled={editSaving}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-spent">Spent</Label>
-                  <Input
-                    id="edit-spent"
-                    type="number"
-                    min={0}
-                    value={editForm.spentAmount}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({
-                        ...prev,
-                        spentAmount: event.target.value,
-                      }))
-                    }
-                    disabled={editSaving}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-remaining">Remaining</Label>
-                  <Input
-                    id="edit-remaining"
-                    type="number"
-                    min={0}
-                    value={editForm.remainingPurse}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({
-                        ...prev,
-                        remainingPurse: event.target.value,
-                      }))
-                    }
-                    disabled={editSaving}
-                  />
-                </div>
-              </div>
-              {editError ? (
-                <p className="text-sm text-destructive">{editError}</p>
-              ) : null}
-              <div className="flex items-center gap-2">
-                <Button
-                  type="submit"
-                  disabled={editSaving}
-                  isLoading={editSaving}
-                >
-                  Save changes
-                </Button>
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Total purse</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg font-semibold">
+                {formatAmount(team?.totalPurse ?? 0)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Spent</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg font-semibold">
+                {formatAmount(
+                  team?.spentAmount ??
+                    (team?.totalPurse ?? 0) - (team?.remainingPurse ?? 0),
+                )}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Remaining</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg font-semibold">
+                {formatAmount(team?.remainingPurse ?? 0)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Players</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {teamPlayers.length} / {tournament?.teamSize ?? 9}
+            </CardContent>
+          </Card>
+        </div>
+
+        {user ? (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Add player (Admin)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <Label>Search team-less players</Label>
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={editSaving}
-                  onClick={() => setIsEditing(false)}
+                  className="w-full justify-between"
+                  onClick={() => setPlayerCommandOpen(true)}
+                  disabled={assigning}
                 >
-                  Cancel
+                  {selectedPlayer
+                    ? `${selectedPlayer.name} · ${selectedPlayer.role}`
+                    : "Select player"}
                 </Button>
+                <CommandDialog
+                  open={playerCommandOpen}
+                  onOpenChange={setPlayerCommandOpen}
+                  title="Select player"
+                  description="Search team-less players"
+                >
+                  <CommandInput placeholder="Search players..." />
+                  <CommandList>
+                    <CommandEmpty>No available players.</CommandEmpty>
+                    <CommandGroup>
+                      {availablePlayers.map((player) => (
+                        <CommandItem
+                          key={player.id}
+                          value={`${player.name} ${player.role}`}
+                          onSelect={() => {
+                            setSelectedPlayerId(player.id);
+                            setPlayerCommandOpen(false);
+                          }}
+                        >
+                          <span className="font-medium capitalize">
+                            {player.name.toLowerCase()}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {player.role}
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </CommandDialog>
               </div>
-            </form>
-          </CardContent>
-        </Card>
-      ) : null}
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    if (!teamId || !selectedPlayerId) {
+                      setAssignError("Select a player to add.");
+                      return;
+                    }
+                    setAssignError(null);
+                    setAssigning(true);
+                    try {
+                      await assignPlayerToTeamNoPurse(selectedPlayerId, teamId);
+                      setSelectedPlayerId("");
+                    } catch (err) {
+                      setAssignError(
+                        err instanceof Error
+                          ? err.message
+                          : "Unable to add player.",
+                      );
+                    } finally {
+                      setAssigning(false);
+                    }
+                  }}
+                  disabled={!selectedPlayerId || assigning}
+                  isLoading={assigning}
+                >
+                  Add to team (no purse impact)
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Assigns player with price 0.
+                </span>
+              </div>
+              {assignError ? (
+                <p className="text-sm text-destructive">{assignError}</p>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Squad</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Player</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Price</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {teamPlayers.length === 0 ? (
+        {user && isEditing ? (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Edit Team (Admin)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form
+                className="space-y-3"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  if (!team) {
+                    return;
+                  }
+                  setEditError(null);
+                  const spentAmount = Number(editForm.spentAmount || 0);
+                  const remainingPurse = Number(editForm.remainingPurse || 0);
+                  if (!editForm.name.trim() || !editForm.captainName.trim()) {
+                    setEditError("Team name and captain are required.");
+                    return;
+                  }
+                  if (
+                    Number.isNaN(spentAmount) ||
+                    Number.isNaN(remainingPurse)
+                  ) {
+                    setEditError("Spent and remaining must be valid numbers.");
+                    return;
+                  }
+                  setEditSaving(true);
+                  try {
+                    await updateDoc(doc(db, "teams", team.id), {
+                      name: editForm.name.trim(),
+                      captainName: editForm.captainName.trim(),
+                      spentAmount,
+                      remainingPurse,
+                    });
+                    setIsEditing(false);
+                  } catch (err) {
+                    setEditError(
+                      err instanceof Error
+                        ? err.message
+                        : "Unable to update team.",
+                    );
+                  } finally {
+                    setEditSaving(false);
+                  }
+                }}
+              >
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-team-name">Team name</Label>
+                    <Input
+                      id="edit-team-name"
+                      value={editForm.name}
+                      onChange={(event) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          name: event.target.value,
+                        }))
+                      }
+                      disabled={editSaving}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-captain-name">Captain name</Label>
+                    <Input
+                      id="edit-captain-name"
+                      value={editForm.captainName}
+                      onChange={(event) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          captainName: event.target.value,
+                        }))
+                      }
+                      disabled={editSaving}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-spent">Spent</Label>
+                    <Input
+                      id="edit-spent"
+                      type="number"
+                      min={0}
+                      value={editForm.spentAmount}
+                      onChange={(event) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          spentAmount: event.target.value,
+                        }))
+                      }
+                      disabled={editSaving}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-remaining">Remaining</Label>
+                    <Input
+                      id="edit-remaining"
+                      type="number"
+                      min={0}
+                      value={editForm.remainingPurse}
+                      onChange={(event) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          remainingPurse: event.target.value,
+                        }))
+                      }
+                      disabled={editSaving}
+                    />
+                  </div>
+                </div>
+                {editError ? (
+                  <p className="text-sm text-destructive">{editError}</p>
+                ) : null}
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="submit"
+                    disabled={editSaving}
+                    isLoading={editSaving}
+                  >
+                    Save changes
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={editSaving}
+                    onClick={() => setIsEditing(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Squad</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={3} className="text-muted-foreground">
-                    No players sold to this team yet.
-                  </TableCell>
+                  <TableHead>Player</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Price</TableHead>
                 </TableRow>
-              ) : (
-                teamPlayers.map((player) => (
-                  <TableRow key={player.id}>
-                    <TableCell>
-                      <Link
-                        className="text-sm font-medium text-primary"
-                        to={`/auction/players/${player.id}`}
-                      >
-                        {player.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{player.role}</TableCell>
-                    <TableCell>
-                      {player.soldPrice ? formatAmount(player.soldPrice) : "-"}
+              </TableHeader>
+              <TableBody>
+                {teamPlayers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-muted-foreground">
+                      No players sold to this team yet.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                ) : (
+                  teamPlayers.map((player) => (
+                    <TableRow key={player.id}>
+                      <TableCell>
+                        <Link
+                          className="text-sm font-medium capitalize "
+                          to={`/auction/players/${player.id}`}
+                        >
+                          {player.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{player.role}</TableCell>
+                      <TableCell>
+                        {player.soldPrice ? (
+                          formatAmount(player.soldPrice)
+                        ) : (
+                          <Badge variant="outline">Drafted</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+      <footer className="mt-auto border-t py-4 text-center text-xs text-muted-foreground">
+        Powered by{" "}
+        <a
+          href="https://teqgrow.com/"
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline underline-offset-4"
+        >
+          Teqgrow
+        </a>
+      </footer>
     </div>
   );
 }

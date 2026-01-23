@@ -31,6 +31,7 @@ tournament {
   name: string
   season: string
   teamPurse: number
+  teamSize: number
 }
 ```
 
@@ -43,6 +44,8 @@ teams {
   totalPurse: number
   remainingPurse: number
   spentAmount: number
+  playersCount: number
+  maxBidAmount: number
 }
 ```
 Rules: remainingPurse must not go below zero.
@@ -122,12 +125,13 @@ Bid {
 ### Auction Control
 - Select player
 - Start auction
+- Stop/revert live auction to reselect player
 - Enter/update bid amount
-- Set bid difference (quick buttons + manual)
-- Bid difference minimum 1000 and divisible by 1000
-- Bid difference resets to 1000 for each new player
+- Set bid difference (2k/5k/10k quick buttons + manual)
+- Bid difference auto-escalates at 40,000 and 100,000
+- Bid difference resets to 2,000 for each new player
 - Bid amount auto-updates with bid difference changes
-- Minimum bid = max(base price, current bid + difference)
+- Minimum bid = 20,000 for first bid, then current bid + difference
 - Same team cannot bid twice in a row
 - Set leading team
 - Mark SOLD (confirm with player, team, price)
@@ -135,6 +139,7 @@ Bid {
 - After SOLD: auto-load next available player when present
 - After a bid: clear selected team to prevent repeat bids
 - Delete incorrect bid entries from history
+- Bid submission supports local queue with background sync
 
 ### View-Only Auction
 - Current player
@@ -142,6 +147,7 @@ Bid {
 - Current bid + leading team
 - Team labels include captain name for clarity
 - Team remaining purse
+- Team maximum bid amount
 - Sold players list
 - Completed, Players, and Teams use card/tile grid layouts
 - Player bid history shown newest first

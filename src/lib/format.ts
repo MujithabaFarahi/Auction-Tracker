@@ -5,10 +5,13 @@ export function formatAmount(value: number) {
   return new Intl.NumberFormat("en-IN").format(numericValue);
 }
 
-export function formatTeamLabel(team?: Team | null) {
+export function formatTeamLabel(team?: Team | null, teamOnly?: boolean) {
   if (!team?.name) {
     return "-";
   }
   const captainName = team.captainName?.trim();
+  if (teamOnly) {
+    return team.name;
+  }
   return captainName ? `${team.name} (${captainName})` : team.name;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { onSnapshot, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, writeBatch } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,14 +33,15 @@ import {
   teamsCollectionRef,
   tournamentDocRef,
   updatePlayer,
-  updateTeam,
   type AuctionState,
   type Player,
   type PlayerRole,
   type Team,
   type Tournament,
 } from "@/lib/firestore";
+import { db } from "@/lib/firebase";
 import playerPoolRaw from "../../../playerpool.txt?raw";
+import { useNavigate } from "react-router-dom";
 
 const PLAYER_AREAS = ["Nangalla", "Mangedara", "Majeedpura"] as const;
 const ROLE_ALIASES: Record<string, (typeof PLAYER_ROLES)[number]> = {
@@ -77,6 +78,7 @@ type TournamentFormState = {
   name: string;
   season: string;
   teamPurse: string;
+  teamSize: string;
 };
 
 const emptyTeamForm: TeamFormState = {
@@ -99,6 +101,7 @@ const emptyTournamentForm: TournamentFormState = {
   name: "",
   season: "",
   teamPurse: "",
+  teamSize: "9",
 };
 
 function SetupPage() {
@@ -111,11 +114,12 @@ function SetupPage() {
     useState<PlayerFormState>(emptyPlayerForm);
   const [tournamentForm, setTournamentForm] =
     useState<TournamentFormState>(emptyTournamentForm);
-  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     void ensureAuctionState();
@@ -168,15 +172,14 @@ function SetupPage() {
         season: data.season ?? "",
         teamPurse:
           typeof data.teamPurse === "number" ? String(data.teamPurse) : "",
+        teamSize:
+          typeof data.teamSize === "number" ? String(data.teamSize) : "9",
       });
     });
     return () => unsubscribe();
   }, []);
 
   const auctionLive = auctionState?.status === "LIVE";
-
-  const canEditTeam = (team: Team) =>
-    !auctionLive && team.remainingPurse === team.totalPurse;
 
   const canEditPlayer = () => true;
   const canDeletePlayer = (player: Player) =>
@@ -194,23 +197,47 @@ function SetupPage() {
 
     setSaving(true);
     try {
-      if (editingTeamId) {
-        await updateTeam(editingTeamId, {
-          name: teamForm.name,
-          captainName: teamForm.captainName,
-          totalPurse,
-        });
-      } else {
-        await saveTeam({
-          name: teamForm.name,
-          captainName: teamForm.captainName,
-          totalPurse,
-        });
-      }
+      await saveTeam({
+        name: teamForm.name,
+        captainName: teamForm.captainName,
+        totalPurse,
+      });
       setTeamForm(emptyTeamForm);
-      setEditingTeamId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save team.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleResetTeams = async () => {
+    if (teams.length === 0) {
+      setError("No teams to reset.");
+      return;
+    }
+    const confirmation = window.confirm(
+      "Reset all teams to total/remaining 500000, spent 0, players 0, max bid 380000?",
+    );
+    if (!confirmation) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const batch = writeBatch(db);
+      teams.forEach((team) => {
+        const ref = doc(db, "teams", team.id);
+        batch.update(ref, {
+          totalPurse: 500000,
+          remainingPurse: 500000,
+          spentAmount: 0,
+          playersCount: 0,
+          maxBidAmount: 380000,
+        });
+      });
+      await batch.commit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to reset teams.");
     } finally {
       setSaving(false);
     }
@@ -297,8 +324,13 @@ function SetupPage() {
     event.preventDefault();
     setError(null);
     const teamPurse = Number(tournamentForm.teamPurse || 0);
+    const teamSize = Number(tournamentForm.teamSize || 0);
     if (Number.isNaN(teamPurse) || teamPurse < 0) {
       setError("Team purse must be 0 or more.");
+      return;
+    }
+    if (Number.isNaN(teamSize) || teamSize <= 0) {
+      setError("Team size must be at least 1.");
       return;
     }
     setSaving(true);
@@ -309,6 +341,7 @@ function SetupPage() {
           name: tournamentForm.name.trim() || "Softball Auction",
           season: tournamentForm.season.trim() || "2025",
           teamPurse,
+          teamSize,
         },
         { merge: true },
       );
@@ -327,14 +360,11 @@ function SetupPage() {
     }
     return `${tournament.name} · ${tournament.season} · ${formatAmount(
       tournament.teamPurse ?? 0,
-    )} per team`;
+    )} per team · ${tournament.teamSize ?? 9} players`;
   }, [tournament]);
 
   const sortedPlayers = useMemo(
-    () =>
-      [...players].sort(
-        (a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0),
-      ),
+    () => [...players].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)),
     [players],
   );
 
@@ -455,55 +485,70 @@ function SetupPage() {
           <CardTitle>Tournament</CardTitle>
         </CardHeader>
         <CardContent>
-          <form
-            className="grid gap-4 md:grid-cols-3"
-            onSubmit={handleTournamentSubmit}
-          >
-            <div className="space-y-2">
-              <Label htmlFor="tournament-name">Name</Label>
-              <Input
-                id="tournament-name"
-                value={tournamentForm.name}
-                onChange={(event) =>
-                  setTournamentForm((prev) => ({
-                    ...prev,
-                    name: event.target.value,
-                  }))
-                }
-                disabled={saving}
-              />
+          <form onSubmit={handleTournamentSubmit}>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="space-y-2">
+                <Label htmlFor="tournament-name">Name</Label>
+                <Input
+                  id="tournament-name"
+                  value={tournamentForm.name}
+                  onChange={(event) =>
+                    setTournamentForm((prev) => ({
+                      ...prev,
+                      name: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tournament-season">Season</Label>
+                <Input
+                  id="tournament-season"
+                  value={tournamentForm.season}
+                  onChange={(event) =>
+                    setTournamentForm((prev) => ({
+                      ...prev,
+                      season: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tournament-purse">Team purse</Label>
+                <Input
+                  id="tournament-purse"
+                  type="number"
+                  min={0}
+                  value={tournamentForm.teamPurse}
+                  onChange={(event) =>
+                    setTournamentForm((prev) => ({
+                      ...prev,
+                      teamPurse: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tournament-team-size">Team size</Label>
+                <Input
+                  id="tournament-team-size"
+                  type="number"
+                  min={1}
+                  value={tournamentForm.teamSize}
+                  onChange={(event) =>
+                    setTournamentForm((prev) => ({
+                      ...prev,
+                      teamSize: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="tournament-season">Season</Label>
-              <Input
-                id="tournament-season"
-                value={tournamentForm.season}
-                onChange={(event) =>
-                  setTournamentForm((prev) => ({
-                    ...prev,
-                    season: event.target.value,
-                  }))
-                }
-                disabled={saving}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tournament-purse">Team purse</Label>
-              <Input
-                id="tournament-purse"
-                type="number"
-                min={0}
-                value={tournamentForm.teamPurse}
-                onChange={(event) =>
-                  setTournamentForm((prev) => ({
-                    ...prev,
-                    teamPurse: event.target.value,
-                  }))
-                }
-                disabled={saving}
-              />
-            </div>
-            <div className="flex items-end gap-2">
+            <div className="flex items-center gap-2 mt-4">
               <Button type="submit" disabled={saving} isLoading={saving}>
                 Save tournament
               </Button>
@@ -562,20 +607,8 @@ function SetupPage() {
                   disabled={saving || auctionLive}
                   isLoading={saving}
                 >
-                  {editingTeamId ? "Update team" : "Add team"}
+                  Add team
                 </Button>
-                {editingTeamId ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setTeamForm(emptyTeamForm);
-                      setEditingTeamId(null);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                ) : null}
               </div>
             </form>
 
@@ -598,33 +631,31 @@ function SetupPage() {
                   </TableRow>
                 ) : (
                   teams.map((team) => (
-                    <TableRow key={team.id}>
-                      <TableCell>{formatTeamLabel(team)}</TableCell>
+                    <TableRow
+                      key={team.id}
+                      onClick={() => navigate(`/auction/teams/${team.id}`)}
+                      className="cursor-pointer"
+                    >
+                      <TableCell>{formatTeamLabel(team, true)}</TableCell>
                       <TableCell>{team.captainName}</TableCell>
                       <TableCell>{formatAmount(team.totalPurse)}</TableCell>
                       <TableCell>{formatAmount(team.remainingPurse)}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={!canEditTeam(team)}
-                          onClick={() => {
-                            setEditingTeamId(team.id);
-                            setTeamForm({
-                              name: team.name,
-                              captainName: team.captainName,
-                            });
-                          }}
-                        >
-                          Edit
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))
                 )}
               </TableBody>
             </Table>
+            <div className="flex items-center justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleResetTeams}
+                disabled={saving || teams.length === 0}
+                isLoading={saving}
+              >
+                Reset team values
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -824,73 +855,80 @@ function SetupPage() {
                 ) : null}
               </div>
             </form>
-
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Base</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {players.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-muted-foreground">
-                      No players added yet.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  sortedPlayers.map((player) => (
-                    <TableRow key={player.id}>
-                      <TableCell>{player.name}</TableCell>
-                      <TableCell>{player.role}</TableCell>
-                      <TableCell>{formatAmount(player.basePrice)}</TableCell>
-                      <TableCell>{player.status}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={!canEditPlayer() || saving}
-                            onClick={() => {
-                              setEditingPlayerId(player.id);
-                              setPlayerForm({
-                                name: player.name,
-                                contactNumber: player.contactNumber,
-                                area: player.area ?? "",
-                                role: player.role,
-                                basePrice: String(player.basePrice),
-                                regularTeam: player.regularTeam ?? "",
-                                assignToTeam: false,
-                                teamId: "",
-                              });
-                            }}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="destructive"
-                            disabled={!canDeletePlayer(player) || saving}
-                            onClick={() => handleDeletePlayer(player)}
-                          >
-                            Delete
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Players</CardTitle>
+        </CardHeader>
+        <CardContent className="max-h-screen overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Base</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {players.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-muted-foreground">
+                    No players added yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                sortedPlayers.map((player) => (
+                  <TableRow key={player.id}>
+                    <TableCell>{player.name}</TableCell>
+                    <TableCell>{player.role}</TableCell>
+                    <TableCell>{formatAmount(player.basePrice)}</TableCell>
+                    <TableCell>{player.status}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={!canEditPlayer() || saving}
+                          onClick={() => {
+                            setEditingPlayerId(player.id);
+                            setPlayerForm({
+                              name: player.name,
+                              contactNumber: player.contactNumber,
+                              area: player.area ?? "",
+                              role: player.role,
+                              basePrice: String(player.basePrice),
+                              regularTeam: player.regularTeam ?? "",
+                              assignToTeam: false,
+                              teamId: "",
+                            });
+                          }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          disabled={!canDeletePlayer(player) || saving}
+                          onClick={() => handleDeletePlayer(player)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>

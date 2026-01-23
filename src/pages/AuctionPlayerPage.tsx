@@ -64,121 +64,153 @@ function AuctionPlayerPage() {
 
   if (!playerId) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-6">
-        <p className="text-sm text-muted-foreground">Player not found.</p>
+      <div className="flex min-h-svh flex-col">
+        <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">
+          <p className="text-sm text-muted-foreground">Player not found.</p>
+        </div>
+        <footer className="mt-auto border-t pt-4 text-center text-xs text-muted-foreground">
+          Powered by{" "}
+          <a
+            href="https://teqgrow.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            Teqgrow
+          </a>
+        </footer>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-6">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-semibold">{player?.name ?? "Player"}</h1>
-          <p className="text-sm text-muted-foreground">{player?.role ?? ""}</p>
+    <div className="flex min-h-svh flex-col">
+      <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold">
+              {player?.name ?? "Player"}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {player?.role ?? ""}
+            </p>
+          </div>
+
+          <Button variant={"ghost"} onClick={() => navigate(-1)}>
+            <ArrowLeft /> Back
+          </Button>
         </div>
 
-        <Button variant={"ghost"} onClick={() => navigate(-1)}>
-          <ArrowLeft /> Back
-        </Button>
-      </div>
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
+          <Card>
+            <CardHeader>
+              <CardTitle>Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {statusLabel ? <Badge>{statusLabel}</Badge> : null}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Base price</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg font-semibold">
+                {formatAmount(player?.basePrice ?? 0)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Sold price</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg font-semibold">
+                {player?.soldPrice ? formatAmount(player.soldPrice) : "-"}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
 
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {statusLabel ? <Badge>{statusLabel}</Badge> : null}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Base price</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-semibold">
-              {formatAmount(player?.basePrice ?? 0)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Sold price</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-semibold">
-              {player?.soldPrice ? formatAmount(player.soldPrice) : "-"}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Details</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          {user ? (
-            <p>
-              Contact:{" "}
-              <span className="font-medium">
-                {player?.contactNumber ?? "-"}
-              </span>
-            </p>
-          ) : null}
-          <p>
-            Team:{" "}
-            {team ? (
-              <Link className="text-primary" to={`/auction/teams/${team.id}`}>
-                {formatTeamLabel(team)}
-              </Link>
-            ) : (
-              "-"
-            )}
-          </p>
-        </CardContent>
-      </Card>
-
-      {player?.status === "SOLD" ? (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Bidding History</CardTitle>
+            <CardTitle>Details</CardTitle>
           </CardHeader>
-          <CardContent>
-            {player.bidHistory?.length ? (
-              <div className="space-y-2 text-sm">
-                {[...player.bidHistory].reverse().map((bid, index) => (
-                  <div
-                    key={`${bid.teamId}-${bid.timestamp}-${index}`}
-                    className="flex items-center justify-between rounded-md border px-3 py-2"
-                  >
-                    <span>
-                      {formatTeamLabel(
-                        teams.find((item) => item.id === bid.teamId) ?? {
-                          id: bid.teamId,
-                          name: bid.teamName,
-                          captainName: "",
-                          totalPurse: 0,
-                          remainingPurse: 0,
-                          spentAmount: 0,
-                        },
-                      )}
-                    </span>
-                    <span className="font-semibold">
-                      {formatAmount(bid.amount)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No bid history recorded for this player.
+          <CardContent className="space-y-2 text-sm">
+            {user ? (
+              <p>
+                Contact:{" "}
+                <span className="font-medium">
+                  {player?.contactNumber ?? "-"}
+                </span>
               </p>
-            )}
+            ) : null}
+            <p>
+              Team:{" "}
+              {team ? (
+                <Link className="text-primary" to={`/auction/teams/${team.id}`}>
+                  {formatTeamLabel(team)}
+                </Link>
+              ) : (
+                "-"
+              )}
+            </p>
           </CardContent>
         </Card>
-      ) : null}
+
+        {player?.status === "SOLD" ? (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Bidding History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {player.bidHistory?.length ? (
+                <div className="space-y-2 text-sm">
+                  {[...player.bidHistory].reverse().map((bid, index) => (
+                    <div
+                      key={`${bid.teamId}-${bid.timestamp}-${index}`}
+                      className="flex items-center justify-between rounded-md border px-3 py-2"
+                    >
+                      <span>
+                        {formatTeamLabel(
+                          teams.find((item) => item.id === bid.teamId) ?? {
+                            id: bid.teamId,
+                            name: bid.teamName,
+                            captainName: "",
+                            totalPurse: 0,
+                            remainingPurse: 0,
+                            spentAmount: 0,
+                            playersCount: 0,
+                            maxBidAmount: 0,
+                          },
+                        )}
+                      </span>
+                      <span className="font-semibold">
+                        {formatAmount(bid.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No bid history recorded for this player.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
+      <footer className="mt-auto border-t py-4 text-center text-xs text-muted-foreground">
+        Powered by{" "}
+        <a
+          href="https://teqgrow.com/"
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline underline-offset-4"
+        >
+          Teqgrow
+        </a>
+      </footer>
     </div>
   );
 }

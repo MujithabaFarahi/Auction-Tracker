@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { onSnapshot } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { Repeat, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,13 +26,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { formatAmount, formatTeamLabel } from "@/lib/format";
 import { LiveInfoCard } from "@/components/auction/LiveInfoCard";
 import { TeamCard } from "@/components/auction/TeamCard";
@@ -40,15 +33,20 @@ import {
   auctionStateDocRef,
   deleteBidAtIndex,
   ensureAuctionState,
+  commitPendingBids,
   markPlayerSold,
-  placeBid,
   playersCollectionRef,
   setCurrentPlayer,
   startAuction,
+  stopAuction,
   teamsCollectionRef,
+  tournamentDocRef,
+  updateLiveBid,
   type AuctionState,
+  type Bid,
   type Player,
   type Team,
+  type Tournament,
 } from "@/lib/firestore";
 import { useNavigate } from "react-router-dom";
 
@@ -56,15 +54,20 @@ function AuctionPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
+  const [tournament, setTournament] = useState<Tournament | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState("");
-  const [selectedTeamId, setSelectedTeamId] = useState("");
   const [bidAmount, setBidAmount] = useState("");
-  const [differenceAmount, setDifferenceAmount] = useState("1000");
+  const [differenceAmount, setDifferenceAmount] = useState("2000");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingBids, setPendingBids] = useState<Bid[]>([]);
+  const [syncingBids, setSyncingBids] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [playerCommandOpen, setPlayerCommandOpen] = useState(false);
   const lastSuggestedBidRef = useRef<number>(0);
+  const pendingPlayerIdRef = useRef<string | null>(null);
+  const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingBidsRef = useRef<Bid[]>([]);
 
   const navigate = useNavigate();
 
@@ -105,6 +108,17 @@ function AuctionPage() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = onSnapshot(tournamentDocRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        setTournament(null);
+        return;
+      }
+      setTournament(snapshot.data() as Tournament);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const availablePlayers = useMemo(
     () =>
       players
@@ -125,16 +139,6 @@ function AuctionPage() {
     [players, selectedPlayerId],
   );
 
-  const leadingTeam = useMemo(
-    () => teams.find((team) => team.id === auctionState?.leadingTeamId) ?? null,
-    [teams, auctionState?.leadingTeamId],
-  );
-
-  const selectedTeam = useMemo(
-    () => teams.find((team) => team.id === selectedTeamId) ?? null,
-    [teams, selectedTeamId],
-  );
-
   const teamStats = useMemo(() => {
     const counts: Record<string, number> = {};
     players.forEach((player) => {
@@ -148,23 +152,93 @@ function AuctionPage() {
     }));
   }, [teams, players]);
 
-  const bidHistory = auctionState?.bidHistory ?? [];
-  const auctionLive = auctionState?.status === "LIVE";
-  const lastBidTeamId = bidHistory.length
-    ? bidHistory[bidHistory.length - 1].teamId
-    : null;
-  const currentBidAmount = Number(auctionState?.currentBid ?? 0);
+  const getMaxBidForTeam = (team: Team & { playersCount: number }) => {
+    if (typeof team.maxBidAmount === "number") {
+      return team.maxBidAmount;
+    }
+    const teamSize = tournament?.teamSize ?? 9;
+    const minReserve = 20000;
+    const remainingSlots = Math.max(0, teamSize - team.playersCount);
+    if (remainingSlots <= 0) {
+      return 0;
+    }
+    return team.remainingPurse - (remainingSlots - 1) * minReserve;
+  };
 
-  const differenceValue = Math.max(1000, Number(differenceAmount) || 0);
-  const basePrice = Number(currentPlayer?.basePrice ?? 0);
-  const minBid = Math.max(basePrice, currentBidAmount + differenceValue);
+  const bidHistory = useMemo(
+    () => auctionState?.bidHistory ?? [],
+    [auctionState?.bidHistory],
+  );
+
+  const combinedBidHistory = useMemo(
+    () => (pendingBids.length ? [...bidHistory, ...pendingBids] : bidHistory),
+    [bidHistory, pendingBids],
+  );
+  const auctionLive = auctionState?.status === "LIVE";
+  const lastCombinedBid =
+    combinedBidHistory.length > 0
+      ? combinedBidHistory[combinedBidHistory.length - 1]
+      : null;
+  const lastBidTeamId = lastCombinedBid?.teamId ?? null;
+  const currentBidAmount =
+    lastCombinedBid?.amount ?? Number(auctionState?.currentBid ?? 0);
+  const leadingTeamId =
+    lastCombinedBid?.teamId ?? auctionState?.leadingTeamId ?? null;
+  const leadingTeamCombined =
+    teams.find((team) => team.id === leadingTeamId) ?? null;
+
+  const differenceValue = Math.max(2000, Number(differenceAmount) || 0);
+  const minBid =
+    combinedBidHistory.length === 0
+      ? 20000
+      : currentBidAmount + differenceValue;
+  const forceDiff5000 = currentBidAmount >= 40000 && currentBidAmount < 100000;
+  const forceDiff10000 = currentBidAmount >= 100000;
 
   useEffect(() => {
     if (auctionState?.currentPlayerId) {
-      setDifferenceAmount("1000");
+      setDifferenceAmount("2000");
       lastSuggestedBidRef.current = 0;
     }
   }, [auctionState?.currentPlayerId]);
+
+  useEffect(() => {
+    if (forceDiff10000 && differenceAmount !== "10000") {
+      setDifferenceAmount("10000");
+      return;
+    }
+    if (forceDiff5000 && differenceAmount !== "5000") {
+      setDifferenceAmount("5000");
+    }
+  }, [forceDiff10000, forceDiff5000, differenceAmount]);
+
+  useEffect(() => {
+    pendingBidsRef.current = pendingBids;
+  }, [pendingBids]);
+
+  useEffect(() => {
+    if (
+      pendingBids.length > 0 &&
+      pendingPlayerIdRef.current &&
+      auctionState?.currentPlayerId &&
+      pendingPlayerIdRef.current !== auctionState.currentPlayerId
+    ) {
+      pendingBidsRef.current = [];
+      setPendingBids([]);
+      pendingPlayerIdRef.current = null;
+      setStatusMessage(
+        "Pending bids cleared because the active player changed.",
+      );
+    }
+  }, [auctionState?.currentPlayerId, pendingBids]);
+
+  useEffect(() => {
+    return () => {
+      if (flushTimeoutRef.current) {
+        clearTimeout(flushTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const currentBidInput = Number(bidAmount || 0);
@@ -182,15 +256,20 @@ function AuctionPage() {
     }
   }, [auctionLive, bidAmount, minBid]);
 
-  const handleSelectPlayer = async () => {
-    if (!selectedPlayerId) {
+  const handleSelectPlayer = async (playerId: string) => {
+    if (!playerId) {
       setStatusMessage("Select a player to start the auction.");
+      return;
+    }
+    if (auctionLive) {
+      setStatusMessage("Stop the live auction before changing players.");
       return;
     }
     setSubmitting(true);
     setStatusMessage(null);
     try {
-      await setCurrentPlayer(selectedPlayerId);
+      await setCurrentPlayer(playerId);
+      setSelectedPlayerId(playerId);
     } catch (err) {
       setStatusMessage(
         err instanceof Error ? err.message : "Unable to set current player.",
@@ -218,11 +297,83 @@ function AuctionPage() {
     }
   };
 
-  const handlePlaceBid = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleStopAuction = async () => {
+    setSubmitting(true);
     setStatusMessage(null);
+    try {
+      await stopAuction();
+      setPendingBids([]);
+      pendingBidsRef.current = [];
+      pendingPlayerIdRef.current = null;
+      if (flushTimeoutRef.current) {
+        clearTimeout(flushTimeoutRef.current);
+        flushTimeoutRef.current = null;
+      }
+    } catch (err) {
+      setStatusMessage(
+        err instanceof Error ? err.message : "Unable to stop auction.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const flushPendingBids = async () => {
+    const bidsToCommit = pendingBidsRef.current;
+    if (!bidsToCommit.length) {
+      return true;
+    }
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current);
+      flushTimeoutRef.current = null;
+    }
+    const playerId = pendingPlayerIdRef.current;
+    if (!playerId) {
+      setStatusMessage("Pending bids cannot be synced without a player.");
+      return false;
+    }
+    if (syncingBids) {
+      return false;
+    }
+    setSyncingBids(true);
+    setStatusMessage(null);
+    try {
+      await commitPendingBids(playerId, bidsToCommit);
+      pendingBidsRef.current = [];
+      setPendingBids([]);
+      pendingPlayerIdRef.current = null;
+      return true;
+    } catch (err) {
+      setStatusMessage(
+        err instanceof Error ? err.message : "Unable to sync pending bids.",
+      );
+      return false;
+    } finally {
+      setSyncingBids(false);
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current);
+    }
+    flushTimeoutRef.current = setTimeout(() => {
+      void flushPendingBids();
+    }, 800);
+  };
+
+  const placeBidForTeam = (teamId: string) => {
+    setStatusMessage(null);
+    if (!auctionState?.currentPlayerId) {
+      setStatusMessage("Select a player before placing a bid.");
+      return;
+    }
+    const latestPendingBid =
+      pendingBidsRef.current[pendingBidsRef.current.length - 1];
+    const latestTeamId = latestPendingBid?.teamId ?? lastBidTeamId;
+
     const amount = Number(bidAmount);
-    if (!selectedTeamId || amount <= 0) {
+    if (!teamId || amount <= 0) {
       setStatusMessage("Select a team and enter a valid bid amount.");
       return;
     }
@@ -230,30 +381,48 @@ function AuctionPage() {
       setStatusMessage("Enter a valid bid difference amount.");
       return;
     }
-    if (lastBidTeamId && selectedTeamId === lastBidTeamId) {
+    if (latestTeamId && teamId === latestTeamId) {
       setStatusMessage("Same team cannot bid twice in a row.");
       return;
     }
-    if (amount < minBid) {
-      setStatusMessage(`Bid must be at least ${formatAmount(minBid)}.`);
+
+    const team = teamStats.find((item) => item.id === teamId);
+    if (!team) {
+      setStatusMessage("Team not found.");
       return;
     }
-    if (selectedTeam && selectedTeam.remainingPurse < amount) {
+    const maxBid = getMaxBidForTeam(team);
+    if (maxBid !== null && amount > maxBid) {
+      setStatusMessage(
+        `Max bid for this team is ${formatAmount(maxBid)} based on remaining slots.`,
+      );
+      return;
+    }
+    if (team.remainingPurse < amount) {
       setStatusMessage("Team purse is insufficient for this bid.");
       return;
     }
-    setSubmitting(true);
-    try {
-      await placeBid(selectedTeamId, amount);
-      setBidAmount("");
-      setSelectedTeamId("");
-    } catch (err) {
-      setStatusMessage(
-        err instanceof Error ? err.message : "Unable to place bid.",
-      );
-    } finally {
-      setSubmitting(false);
+    const bid: Bid = {
+      teamId,
+      teamName: team.name,
+      amount,
+      timestamp: Date.now(),
+    };
+    const nextPending = [...pendingBidsRef.current, bid];
+    pendingBidsRef.current = nextPending;
+    setPendingBids(nextPending);
+    pendingPlayerIdRef.current = auctionState?.currentPlayerId ?? null;
+    setBidAmount("");
+    if (nextPending.length >= 4) {
+      void flushPendingBids();
+    } else {
+      scheduleFlush();
     }
+    void updateLiveBid(teamId, amount).catch((err) => {
+      setStatusMessage(
+        err instanceof Error ? err.message : "Unable to update live bid.",
+      );
+    });
   };
 
   const handleMarkSold = async () => {
@@ -261,13 +430,20 @@ function AuctionPage() {
       setStatusMessage("Select a player before marking sold.");
       return;
     }
-    if (!leadingTeam) {
+    if (!leadingTeamCombined) {
       setStatusMessage("No leading team yet. Place a bid first.");
       return;
     }
     if (!currentBidAmount) {
       setStatusMessage("Bid amount must be greater than 0 to mark sold.");
       return;
+    }
+    if (pendingBidsRef.current.length > 0) {
+      const synced = await flushPendingBids();
+      if (!synced || pendingBidsRef.current.length > 0) {
+        setStatusMessage("Sync pending bids before marking a player sold.");
+        return;
+      }
     }
     setSubmitting(true);
     setStatusMessage(null);
@@ -279,6 +455,7 @@ function AuctionPage() {
       if (nextPlayer) {
         await setCurrentPlayer(nextPlayer.id);
         setSelectedPlayerId(nextPlayer.id);
+        setBidAmount("20000"); // Pre-fill bid for next player
       } else {
         setSelectedPlayerId("");
       }
@@ -292,26 +469,17 @@ function AuctionPage() {
     }
   };
 
-  const adjustDifference = (delta: number) => {
-    setDifferenceAmount((prev) => {
-      const current = Number(prev) || 0;
-      const next = Math.max(1000, current + delta);
-      const rounded = Math.round(next / 1000) * 1000;
-      return String(rounded);
-    });
-  };
-
   const normalizeDifference = (value: string) => {
     const numericValue = Number(value) || 0;
     const rounded = Math.round(numericValue / 1000) * 1000;
-    return String(Math.max(1000, rounded));
+    return String(Math.max(2000, rounded));
   };
 
   const canMarkSold =
     auctionLive &&
     !submitting &&
     Boolean(currentPlayer) &&
-    Boolean(leadingTeam) &&
+    Boolean(leadingTeamCombined) &&
     currentBidAmount > 0;
 
   const handleDeleteBid = async (index: number) => {
@@ -349,17 +517,11 @@ function AuctionPage() {
                   onClick={() => setPlayerCommandOpen(true)}
                   disabled={auctionLive || submitting}
                 >
-                  {selectedPlayer
-                    ? `${selectedPlayer.name} · ${selectedPlayer.role}`
-                    : "Select an available player"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleSelectPlayer}
-                  disabled={auctionLive || submitting}
-                >
-                  Load player
+                  {currentPlayer
+                    ? `${currentPlayer.name} · ${currentPlayer.role}`
+                    : selectedPlayer
+                      ? `${selectedPlayer.name} · ${selectedPlayer.role}`
+                      : "Select an available player"}
                 </Button>
                 <Button
                   type="button"
@@ -368,6 +530,16 @@ function AuctionPage() {
                 >
                   Start auction
                 </Button>
+                {auctionLive ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleStopAuction}
+                    disabled={submitting}
+                  >
+                    <Repeat className="text-destructive" />
+                  </Button>
+                ) : null}
               </div>
               <CommandDialog
                 open={playerCommandOpen}
@@ -384,11 +556,13 @@ function AuctionPage() {
                         key={player.id}
                         value={`${player.name} ${player.role}`}
                         onSelect={() => {
-                          setSelectedPlayerId(player.id);
+                          void handleSelectPlayer(player.id);
                           setPlayerCommandOpen(false);
                         }}
                       >
-                        <span className="font-medium">{player.name}</span>
+                        <span className="font-medium capitalize">
+                          {player.name}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {player.role}
                         </span>
@@ -438,112 +612,106 @@ function AuctionPage() {
               />
               <LiveInfoCard
                 title="Current bid"
-                primary={formatAmount(auctionState?.currentBid ?? 0)}
+                primary={formatAmount(currentBidAmount)}
                 secondary={`Leading team: ${
-                  leadingTeam ? formatTeamLabel(leadingTeam) : "None"
+                  leadingTeamCombined
+                    ? formatTeamLabel(leadingTeamCombined)
+                    : "None"
                 }`}
               />
             </div>
 
-            <form className="space-y-3" onSubmit={handlePlaceBid}>
+            <div className="space-y-3">
               <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="bid-team">Bid team</Label>
-                  <Select
-                    value={selectedTeamId}
-                    onValueChange={setSelectedTeamId}
-                    disabled={!auctionLive || submitting}
-                  >
-                    <SelectTrigger id="bid-team">
-                      <SelectValue placeholder="Select a team" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {teams.map((team) => (
-                        <SelectItem
-                          key={team.id}
-                          value={team.id}
-                          disabled={team.id === lastBidTeamId}
-                        >
-                          {formatTeamLabel(team)} ·{" "}
-                          {formatAmount(team.remainingPurse)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
                 <div className="space-y-2">
                   <Label htmlFor="bid-amount">Bid amount</Label>
                   <Input
                     id="bid-amount"
                     type="number"
                     min={minBid}
+                    step={1000}
                     value={bidAmount}
                     onChange={(event) => setBidAmount(event.target.value)}
                     disabled={!auctionLive || submitting}
                   />
                   <p className="text-xs text-muted-foreground">
                     Minimum: {formatAmount(minBid)}
-                    {selectedTeam
-                      ? ` · Remaining: ${formatAmount(selectedTeam.remainingPurse)}`
-                      : ""}
                   </p>
+                </div>
+                <div className="grid gap-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="bid-diff">Bid difference</Label>
+                    <Input
+                      id="bid-diff"
+                      type="number"
+                      min={2000}
+                      step={1000}
+                      value={differenceAmount}
+                      onChange={(event) =>
+                        setDifferenceAmount(event.target.value)
+                      }
+                      onBlur={(event) =>
+                        setDifferenceAmount(
+                          normalizeDifference(event.target.value),
+                        )
+                      }
+                      disabled={!auctionLive || submitting}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    {[2000, 5000, 10000, 15000].map((value) => (
+                      <Button
+                        key={`diff-${value}`}
+                        type="button"
+                        variant="outline"
+                        onClick={() => setDifferenceAmount(String(value))}
+                        disabled={
+                          !auctionLive ||
+                          submitting ||
+                          (forceDiff5000 && value === 2000) ||
+                          (forceDiff10000 && value !== 10000 && value !== 15000)
+                        }
+                      >
+                        {formatAmount(value)}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="bid-diff">Bid difference</Label>
-                  <Input
-                    id="bid-diff"
-                    type="number"
-                    min={1000}
-                    step={1000}
-                    value={differenceAmount}
-                    onChange={(event) =>
-                      setDifferenceAmount(event.target.value)
-                    }
-                    onBlur={(event) =>
-                      setDifferenceAmount(
-                        normalizeDifference(event.target.value),
-                      )
-                    }
-                    disabled={!auctionLive || submitting}
-                  />
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[-1000, -2000, -5000, -10000].map((value) => (
-                    <Button
-                      key={`minus-${value}`}
-                      type="button"
-                      variant="outline"
-                      onClick={() => adjustDifference(value)}
-                      disabled={!auctionLive || submitting}
-                    >
-                      {formatAmount(value)}
-                    </Button>
-                  ))}
-                  {[1000, 2000, 5000, 10000].map((value) => (
-                    <Button
-                      key={`plus-${value}`}
-                      type="button"
-                      variant="outline"
-                      onClick={() => adjustDifference(value)}
-                      disabled={!auctionLive || submitting}
-                    >
-                      +{formatAmount(value)}
-                    </Button>
-                  ))}
+              <div className="space-y-2">
+                <Label>Bid team</Label>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {teamStats.map((team) => {
+                    const maxBid = getMaxBidForTeam(team);
+                    const disabled =
+                      !auctionLive ||
+                      // submitting ||
+                      Number(bidAmount) > maxBid ||
+                      team.id === lastBidTeamId ||
+                      maxBid <= 0;
+                    return (
+                      <Button
+                        key={team.id}
+                        type="button"
+                        variant="outline"
+                        className="h-auto justify-between py-2 text-left flex-col gap-0.5"
+                        disabled={disabled}
+                        onClick={() => void placeBidForTeam(team.id)}
+                      >
+                        <span className="text-xs font-semibold">
+                          {team.captainName}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          Max {formatAmount(Math.max(0, maxBid))}
+                        </span>
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 justify-end py-2">
-                <Button
-                  type="submit"
-                  disabled={!auctionLive || submitting}
-                  isLoading={submitting}
-                >
-                  Place bid
-                </Button>
                 <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -573,7 +741,9 @@ function AuctionPage() {
                       <p className="text-muted-foreground">
                         Team:{" "}
                         <span className="font-medium text-foreground">
-                          {leadingTeam ? formatTeamLabel(leadingTeam) : "-"}
+                          {leadingTeamCombined
+                            ? formatTeamLabel(leadingTeamCombined)
+                            : "-"}
                         </span>
                       </p>
                       <p className="text-muted-foreground">
@@ -608,7 +778,9 @@ function AuctionPage() {
                 <p className="text-muted-foreground">
                   Team:{" "}
                   <span className="font-medium text-foreground">
-                    {leadingTeam ? formatTeamLabel(leadingTeam) : "-"}
+                    {leadingTeamCombined
+                      ? formatTeamLabel(leadingTeamCombined)
+                      : "-"}
                   </span>
                 </p>
                 <p className="text-muted-foreground">
@@ -618,7 +790,7 @@ function AuctionPage() {
                   </span>
                 </p>
               </div>
-            </form>
+            </div>
 
             {statusMessage ? (
               <p className="text-sm text-destructive">{statusMessage}</p>
@@ -630,49 +802,75 @@ function AuctionPage() {
           <CardHeader>
             <CardTitle>Bid History</CardTitle>
           </CardHeader>
-          <CardContent>
-            {bidHistory.length === 0 ? (
+          <CardContent className="max-h-[calc(100vh-6rem)] overflow-y-auto">
+            {combinedBidHistory.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No bids yet. Bids will appear live here.
               </p>
             ) : (
               <div className="space-y-2">
-                {[...bidHistory].reverse().map((bid, index) => (
-                  <div
-                    key={`${bid.teamId}-${bid.timestamp}-${index}`}
-                    className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-                  >
+                {pendingBids.length > 0 ? (
+                  <div className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-2 text-xs">
                     <span>
-                      {formatTeamLabel(
-                        teams.find((team) => team.id === bid.teamId) ?? {
-                          id: bid.teamId,
-                          name: bid.teamName,
-                          captainName: "",
-                          totalPurse: 0,
-                          remainingPurse: 0,
-                          spentAmount: 0,
-                        },
-                      )}
+                      {pendingBids.length} pending{" "}
+                      {pendingBids.length === 1 ? "bid" : "bids"}
                     </span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">
-                        {formatAmount(bid.amount)}
-                      </span>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="outline"
-                        onClick={() =>
-                          handleDeleteBid(bidHistory.length - 1 - index)
-                        }
-                        disabled={submitting}
-                        aria-label="Delete bid"
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void flushPendingBids()}
+                      disabled={syncingBids}
+                    >
+                      {syncingBids ? "Syncing..." : "Sync now"}
+                    </Button>
                   </div>
-                ))}
+                ) : null}
+                {[...combinedBidHistory].reverse().map((bid, index) => {
+                  const originalIndex = combinedBidHistory.length - 1 - index;
+                  const isPending = originalIndex >= bidHistory.length;
+                  return (
+                    <div
+                      key={`${bid.teamId}-${bid.timestamp}-${index}`}
+                      className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                    >
+                      <span>
+                        {formatTeamLabel(
+                          teams.find((team) => team.id === bid.teamId) ?? {
+                            id: bid.teamId,
+                            name: bid.teamName,
+                            captainName: "",
+                            totalPurse: 0,
+                            remainingPurse: 0,
+                            spentAmount: 0,
+                            playersCount: 0,
+                            maxBidAmount: 0,
+                          },
+                        )}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {isPending ? (
+                          <Badge variant="outline">Pending</Badge>
+                        ) : null}
+                        <span className="font-semibold">
+                          {formatAmount(bid.amount)}
+                        </span>
+                        {!isPending ? (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            onClick={() => handleDeleteBid(originalIndex)}
+                            disabled={submitting}
+                            aria-label="Delete bid"
+                          >
+                            <Trash2 />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -693,10 +891,12 @@ function AuctionPage() {
               {teamStats.map((team) => (
                 <TeamCard
                   key={team.id}
-                  name={formatTeamLabel(team)}
+                  name={formatTeamLabel(team, true)}
+                  captain={team.captainName}
                   spent={formatAmount(team.spentAmount)}
                   remaining={formatAmount(team.remainingPurse)}
                   playersCount={team.playersCount}
+                  teamSize={tournament?.teamSize ?? 9}
                   onClick={() => navigate(`/auction/teams/${team.id}`)}
                 />
               ))}

@@ -12,7 +12,9 @@ function PlayerTile({ name, role, basePrice, onClick }: PlayerTileProps) {
       onClick={onClick}
     >
       <div>
-        <p className="text-sm font-semibold text-primary capitalize">{name}</p>
+        <p className="text-sm font-semibold text-primary capitalize">
+          {name.toLowerCase()}
+        </p>
         <p className="text-xs text-muted-foreground">{role}</p>
       </div>
       <div className="text-right">

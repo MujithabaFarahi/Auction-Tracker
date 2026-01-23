@@ -1,18 +1,23 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "../ui/badge";
 
 type TeamCardProps = {
   name: string;
+  captain: string;
   spent: string;
   remaining: string;
   playersCount: number;
+  teamSize?: number;
   onClick?: () => void;
 };
 
 function TeamCard({
   name,
+  captain,
   spent,
   remaining,
   playersCount,
+  teamSize = 9,
   onClick,
 }: TeamCardProps) {
   return (
@@ -21,10 +26,22 @@ function TeamCard({
       onClick={onClick}
     >
       <CardHeader className="gap-0">
-        <CardTitle className="text-base">{name}</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Players: {playersCount} / 9
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base capitalize">
+              {name.toLowerCase()}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Players: {playersCount} / {teamSize}
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className="h-8 px-3 py-1 text-sm font-semibold capitalize"
+          >
+            {captain.toLowerCase()}
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="grid gap-3 text-sm grid-cols-2 p-0">
         <div className="text-center p-3">
