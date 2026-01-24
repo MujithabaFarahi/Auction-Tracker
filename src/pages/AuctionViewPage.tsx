@@ -126,8 +126,8 @@ function AuctionViewPage() {
     [teams, auctionState?.leadingTeamId],
   );
 
-  const soldPlayers = useMemo(
-    () => players.filter((player) => player.status === "SOLD"),
+  const completedPlayers = useMemo(
+    () => players.filter((player) => player.status !== "AVAILABLE"),
     [players],
   );
 
@@ -138,7 +138,9 @@ function AuctionViewPage() {
     if (!soldToastInitializedRef.current) {
       seenSoldIdsRef.current = new Set(
         players
-          .filter((player) => player.status === "SOLD")
+          .filter(
+            (player) => player.status === "SOLD" || player.status === "DRAFTED",
+          )
           .map((player) => player.id),
       );
       soldToastInitializedRef.current = true;
@@ -146,7 +148,8 @@ function AuctionViewPage() {
     }
     const newSoldPlayers = players.filter(
       (player) =>
-        player.status === "SOLD" && !seenSoldIdsRef.current.has(player.id),
+        (player.status === "SOLD" || player.status === "DRAFTED") &&
+        !seenSoldIdsRef.current.has(player.id),
     );
     if (newSoldPlayers.length === 0) {
       return;
@@ -158,15 +161,18 @@ function AuctionViewPage() {
         typeof player.soldPrice === "number"
           ? formatAmount(player.soldPrice)
           : "Drafted";
-      toast.success(`${player.name} sold`, {
-        description: `${team ? formatTeamLabel(team, true) : "Team"} • ${priceLabel}`,
-      });
+      toast.success(
+        `${player.name} ${player.status === "DRAFTED" ? "drafted" : "sold"}`,
+        {
+          description: `${team ? formatTeamLabel(team, true) : "Team"} • ${priceLabel}`,
+        },
+      );
       seenSoldIdsRef.current.add(player.id);
     });
   }, [players, teams]);
 
   const sortedCompletedPlayers = useMemo(() => {
-    const data = [...soldPlayers];
+    const data = [...completedPlayers];
     switch (completedSort) {
       case "priceAsc":
         return data.sort((a, b) => (a.soldPrice ?? 0) - (b.soldPrice ?? 0));
@@ -178,12 +184,15 @@ function AuctionViewPage() {
       default:
         return data.sort((a, b) => (b.soldAt ?? 0) - (a.soldAt ?? 0));
     }
-  }, [soldPlayers, completedSort]);
+  }, [completedPlayers, completedSort]);
 
   const lastCompletedPlayer = sortedCompletedPlayers[0] ?? null;
 
   const unsoldPlayers = useMemo(
-    () => players.filter((player) => player.status === "AVAILABLE"),
+    () =>
+      players.filter(
+        (player) => player.status === "AVAILABLE" || player.status === "UNSOLD",
+      ),
     [players],
   );
 
@@ -199,27 +208,41 @@ function AuctionViewPage() {
         )
       : filteredByRole;
     const sorted = [...filtered];
-    switch (playersSort) {
-      case "createdAsc":
-        return sorted.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-      case "createdDesc":
-        return sorted.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-      case "baseAsc":
-        return sorted.sort((a, b) => a.basePrice - b.basePrice);
-      case "baseDesc":
-        return sorted.sort((a, b) => b.basePrice - a.basePrice);
-      case "nameDesc":
-        return sorted.sort((a, b) => b.name.localeCompare(a.name));
-      case "nameAsc":
-      default:
-        return sorted.sort((a, b) => a.name.localeCompare(b.name));
-    }
+    const statusRank = (status: Player["status"]) =>
+      status === "UNSOLD" ? 1 : 0;
+    const compareBySort = (a: Player, b: Player) => {
+      switch (playersSort) {
+        case "createdAsc":
+          return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+        case "createdDesc":
+          return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+        case "baseAsc":
+          return a.basePrice - b.basePrice;
+        case "baseDesc":
+          return b.basePrice - a.basePrice;
+        case "nameDesc":
+          return b.name.localeCompare(a.name);
+        case "nameAsc":
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    };
+    return sorted.sort((a, b) => {
+      const rankDiff = statusRank(a.status) - statusRank(b.status);
+      if (rankDiff !== 0) {
+        return rankDiff;
+      }
+      return compareBySort(a, b);
+    });
   }, [unsoldPlayers, playerSearch, playersSort, playersRole]);
 
   const teamStats = useMemo(() => {
     const counts: Record<string, number> = {};
-    soldPlayers.forEach((player) => {
-      if (player.soldToTeamId) {
+    players.forEach((player) => {
+      if (
+        (player.status === "SOLD" || player.status === "DRAFTED") &&
+        player.soldToTeamId
+      ) {
         counts[player.soldToTeamId] = (counts[player.soldToTeamId] ?? 0) + 1;
       }
     });
@@ -228,7 +251,7 @@ function AuctionViewPage() {
       spent: team.spentAmount ?? team.totalPurse - team.remainingPurse,
       playersCount: counts[team.id] ?? 0,
     }));
-  }, [teams, soldPlayers]);
+  }, [teams, players]);
 
   return (
     <div className="min-h-svh bg-muted/30 flex flex-col">
@@ -412,21 +435,39 @@ function AuctionViewPage() {
                             (item) =>
                               item.id === lastCompletedPlayer.soldToTeamId,
                           );
+                          const isUnsold =
+                            lastCompletedPlayer.status === "UNSOLD";
+                          const isDrafted =
+                            lastCompletedPlayer.status === "DRAFTED";
                           return (
                             <PlayerCard
                               name={lastCompletedPlayer.name}
                               role={lastCompletedPlayer.role}
-                              badge="Sold"
+                              badge={
+                                isUnsold
+                                  ? "Unsold"
+                                  : isDrafted
+                                    ? "Drafted"
+                                    : "Sold"
+                              }
                               teamLabel={
-                                team ? formatTeamLabel(team, true) : undefined
+                                !isUnsold && team
+                                  ? formatTeamLabel(team, true)
+                                  : undefined
                               }
                               basePrice={formatAmount(
                                 lastCompletedPlayer.basePrice,
                               )}
                               finalPrice={
-                                lastCompletedPlayer.soldPrice
-                                  ? formatAmount(lastCompletedPlayer.soldPrice)
-                                  : "-"
+                                isUnsold
+                                  ? "-"
+                                  : isDrafted
+                                    ? "Drafted"
+                                    : lastCompletedPlayer.soldPrice
+                                      ? formatAmount(
+                                          lastCompletedPlayer.soldPrice,
+                                        )
+                                      : "-"
                               }
                               onClick={() =>
                                 navigate(
@@ -434,7 +475,7 @@ function AuctionViewPage() {
                                 )
                               }
                               onTeamClick={(event) => {
-                                if (!team) {
+                                if (!team || isUnsold) {
                                   return;
                                 }
                                 event.stopPropagation();
@@ -488,6 +529,8 @@ function AuctionViewPage() {
             ) : (
               <div className="grid gap-1.5 md:gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {sortedCompletedPlayers.map((player) => {
+                  const isUnsold = player.status === "UNSOLD";
+                  const isDrafted = player.status === "DRAFTED";
                   const team = teams.find(
                     (item) => item.id === player.soldToTeamId,
                   );
@@ -496,17 +539,27 @@ function AuctionViewPage() {
                       key={player.id}
                       name={player.name}
                       role={player.role}
-                      badge="Sold"
-                      teamLabel={team ? formatTeamLabel(team, true) : undefined}
+                      badge={
+                        isUnsold ? "Unsold" : isDrafted ? "Drafted" : "Sold"
+                      }
+                      teamLabel={
+                        !isUnsold && team
+                          ? formatTeamLabel(team, true)
+                          : undefined
+                      }
                       basePrice={formatAmount(player.basePrice)}
                       finalPrice={
-                        player.soldPrice
-                          ? formatAmount(player.soldPrice)
-                          : undefined
+                        isUnsold
+                          ? "-"
+                          : isDrafted
+                            ? "Drafted"
+                            : player.soldPrice
+                              ? formatAmount(player.soldPrice)
+                              : undefined
                       }
                       onClick={() => navigate(`/auction/players/${player.id}`)}
                       onTeamClick={(event) => {
-                        if (!team) {
+                        if (!team || isUnsold) {
                           return;
                         }
                         event.stopPropagation();
@@ -614,15 +667,16 @@ function AuctionViewPage() {
         </Tabs>
       </div>
       <footer className="mt-auto border-t py-4 text-center text-xs text-muted-foreground">
-        Powered by{" "}
+        © 2025{" "}
         <a
           href="https://teqgrow.com/"
           target="_blank"
           rel="noreferrer"
           className="font-medium text-foreground underline underline-offset-4"
         >
-          Teqgrow
+          TeqGrow
         </a>
+        . All rights reserved.
       </footer>
       <Toaster />
     </div>

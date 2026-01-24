@@ -17,7 +17,9 @@ function LiveInfoCard({ title, primary, secondary, meta }: LiveInfoCardProps) {
           {title}
         </CardTitle>
         <div>
-          <p className="text-lg font-semibold">{primary}</p>
+          <p className="text-lg font-semibold capitalize">
+            {primary.toLowerCase()}
+          </p>
           {secondary ? (
             <p className="text-sm text-muted-foreground">{secondary}</p>
           ) : null}

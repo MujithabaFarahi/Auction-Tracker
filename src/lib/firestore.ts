@@ -42,7 +42,7 @@ export const PLAYER_ROLES = [
 
 export type PlayerRole = (typeof PLAYER_ROLES)[number];
 
-export type PlayerStatus = "AVAILABLE" | "SOLD";
+export type PlayerStatus = "AVAILABLE" | "UNSOLD" | "DRAFTED" | "SOLD";
 
 export type Player = {
   id: string;
@@ -216,7 +216,10 @@ export async function deletePlayer(playerId: string) {
     }
     const playerData = playerSnap.data() as Player;
 
-    if (playerData.status === "SOLD" && playerData.soldToTeamId) {
+    if (
+      (playerData.status === "SOLD" || playerData.status === "DRAFTED") &&
+      playerData.soldToTeamId
+    ) {
       const teamRef = doc(db, "teams", playerData.soldToTeamId);
       const teamSnap = await transaction.get(teamRef);
       if (!teamSnap.exists()) {
@@ -257,7 +260,10 @@ export async function assignPlayerToTeamNoPurse(
       throw new Error("Player not found.");
     }
     const playerData = playerSnap.data() as Player;
-    if (playerData.status === "SOLD" && playerData.soldToTeamId) {
+    if (
+      (playerData.status === "SOLD" || playerData.status === "DRAFTED") &&
+      playerData.soldToTeamId
+    ) {
       throw new Error("Player is already assigned to a team.");
     }
 
@@ -276,7 +282,7 @@ export async function assignPlayerToTeamNoPurse(
     const nextPlayersCount = (teamData.playersCount ?? 0) + 1;
 
     transaction.update(playerRef, {
-      status: "SOLD",
+      status: "DRAFTED",
       soldToTeamId: teamId,
       soldPrice: 0,
       soldAt: Date.now(),
@@ -352,7 +358,7 @@ export async function placeBid(teamId: string, amount: number) {
       throw new Error("Selected player not found.");
     }
     const playerData = playerSnap.data() as Player;
-    if (playerData.status !== "AVAILABLE") {
+    if (playerData.status === "SOLD" || playerData.status === "DRAFTED") {
       throw new Error("Player is already sold.");
     }
 
@@ -478,7 +484,7 @@ export async function markPlayerSold() {
       throw new Error("Selected player not found.");
     }
     const playerData = playerSnap.data() as Player;
-    if (playerData.status !== "AVAILABLE") {
+    if (playerData.status === "SOLD" || playerData.status === "DRAFTED") {
       throw new Error("Player already sold.");
     }
 
@@ -513,6 +519,45 @@ export async function markPlayerSold() {
       soldToTeamId: winningBid.teamId,
       soldPrice: winningBid.amount,
       soldAt: Date.now(),
+    });
+
+    transaction.update(auctionStateDocRef, {
+      currentPlayerId: null,
+      currentBid: 0,
+      leadingTeamId: null,
+      status: "IDLE",
+      bidHistory: [],
+    });
+  });
+}
+
+export async function markPlayerUnsold() {
+  await runTransaction(db, async (transaction) => {
+    const auctionSnap = await transaction.get(auctionStateDocRef);
+    if (!auctionSnap.exists()) {
+      throw new Error("Auction state not initialized.");
+    }
+    const auctionData = auctionSnap.data() as AuctionState;
+    if (auctionData.status !== "LIVE" || !auctionData.currentPlayerId) {
+      throw new Error("No live auction to close.");
+    }
+
+    const playerRef = doc(db, "players", auctionData.currentPlayerId);
+    const playerSnap = await transaction.get(playerRef);
+    if (!playerSnap.exists()) {
+      throw new Error("Selected player not found.");
+    }
+    const playerData = playerSnap.data() as Player;
+    if (playerData.status === "SOLD" || playerData.status === "DRAFTED") {
+      throw new Error("Player already sold.");
+    }
+
+    transaction.update(playerRef, {
+      status: "UNSOLD",
+      soldToTeamId: null,
+      soldPrice: null,
+      soldAt: Date.now(),
+      bidHistory: [],
     });
 
     transaction.update(auctionStateDocRef, {

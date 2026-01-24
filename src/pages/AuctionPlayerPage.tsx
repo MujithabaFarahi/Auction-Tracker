@@ -59,7 +59,16 @@ function AuctionPlayerPage() {
     if (!player) {
       return null;
     }
-    return player.status === "SOLD" ? "Sold" : "Available";
+    if (player.status === "SOLD") {
+      return "Sold";
+    }
+    if (player.status === "UNSOLD") {
+      return "Unsold";
+    }
+    if (player.status === "DRAFTED") {
+      return "Drafted";
+    }
+    return "Available";
   }, [player]);
 
   if (!playerId) {
@@ -126,7 +135,11 @@ function AuctionPlayerPage() {
             </CardHeader>
             <CardContent>
               <p className="text-lg font-semibold">
-                {player?.soldPrice ? formatAmount(player.soldPrice) : "-"}
+                {player?.status === "DRAFTED"
+                  ? "Drafted"
+                  : player?.soldPrice
+                    ? formatAmount(player.soldPrice)
+                    : "-"}
               </p>
             </CardContent>
           </Card>
@@ -201,15 +214,16 @@ function AuctionPlayerPage() {
         ) : null}
       </div>
       <footer className="mt-auto border-t py-4 text-center text-xs text-muted-foreground">
-        Powered by{" "}
+        © 2025{" "}
         <a
           href="https://teqgrow.com/"
           target="_blank"
           rel="noreferrer"
           className="font-medium text-foreground underline underline-offset-4"
         >
-          Teqgrow
+          TeqGrow
         </a>
+        . All rights reserved.
       </footer>
     </div>
   );

@@ -281,7 +281,7 @@ function SetupPage() {
           role: playerForm.role,
           basePrice,
           regularTeam: playerForm.regularTeam,
-          status: assignedToTeam ? "SOLD" : "AVAILABLE",
+          status: assignedToTeam ? "DRAFTED" : "AVAILABLE",
           soldToTeamId: assignedToTeam,
           soldPrice: assignedToTeam ? 0 : null,
           soldAt: assignedToTeam ? Date.now() : null,

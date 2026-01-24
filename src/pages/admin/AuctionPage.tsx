@@ -35,6 +35,7 @@ import {
   ensureAuctionState,
   commitPendingBids,
   markPlayerSold,
+  markPlayerUnsold,
   playersCollectionRef,
   setCurrentPlayer,
   startAuction,
@@ -122,8 +123,18 @@ function AuctionPage() {
   const availablePlayers = useMemo(
     () =>
       players
-        .filter((player) => player.status === "AVAILABLE")
-        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)),
+        .filter(
+          (player) => player.status === "AVAILABLE" || player.status === "UNSOLD",
+        )
+        .sort((a, b) => {
+          const statusRank = (status: Player["status"]) =>
+            status === "UNSOLD" ? 1 : 0;
+          const rankDiff = statusRank(a.status) - statusRank(b.status);
+          if (rankDiff !== 0) {
+            return rankDiff;
+          }
+          return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+        }),
     [players],
   );
 
@@ -142,7 +153,10 @@ function AuctionPage() {
   const teamStats = useMemo(() => {
     const counts: Record<string, number> = {};
     players.forEach((player) => {
-      if (player.status === "SOLD" && player.soldToTeamId) {
+      if (
+        (player.status === "SOLD" || player.status === "DRAFTED") &&
+        player.soldToTeamId
+      ) {
         counts[player.soldToTeamId] = (counts[player.soldToTeamId] ?? 0) + 1;
       }
     });
@@ -277,6 +291,26 @@ function AuctionPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const getRandomAvailablePlayer = (excludeId?: string) => {
+    const pool = excludeId
+      ? availablePlayers.filter((player) => player.id !== excludeId)
+      : availablePlayers;
+    if (pool.length === 0) {
+      return null;
+    }
+    const index = Math.floor(Math.random() * pool.length);
+    return pool[index];
+  };
+
+  const handleRandomPlayer = async () => {
+    const randomPlayer = getRandomAvailablePlayer();
+    if (!randomPlayer) {
+      setStatusMessage("No available players to select.");
+      return;
+    }
+    await handleSelectPlayer(randomPlayer.id);
   };
 
   const handleStartAuction = async () => {
@@ -449,8 +483,8 @@ function AuctionPage() {
     setStatusMessage(null);
     try {
       await markPlayerSold();
-      const nextPlayer = availablePlayers.find(
-        (player) => player.id !== auctionState?.currentPlayerId,
+      const nextPlayer = getRandomAvailablePlayer(
+        auctionState?.currentPlayerId ?? undefined,
       );
       if (nextPlayer) {
         await setCurrentPlayer(nextPlayer.id);
@@ -466,6 +500,38 @@ function AuctionPage() {
     } finally {
       setSubmitting(false);
       setConfirmOpen(false);
+    }
+  };
+
+  const handleMarkUnsold = async () => {
+    if (!auctionState?.currentPlayerId || !currentPlayer) {
+      setStatusMessage("Select a player before marking unsold.");
+      return;
+    }
+    if (combinedBidHistory.length > 0) {
+      setStatusMessage("Cannot mark unsold after bids have been placed.");
+      return;
+    }
+    setSubmitting(true);
+    setStatusMessage(null);
+    try {
+      await markPlayerUnsold();
+      const nextPlayer = getRandomAvailablePlayer(
+        auctionState?.currentPlayerId ?? undefined,
+      );
+      if (nextPlayer) {
+        await setCurrentPlayer(nextPlayer.id);
+        setSelectedPlayerId(nextPlayer.id);
+        setBidAmount("20000");
+      } else {
+        setSelectedPlayerId("");
+      }
+    } catch (err) {
+      setStatusMessage(
+        err instanceof Error ? err.message : "Unable to mark player unsold.",
+      );
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -530,6 +596,14 @@ function AuctionPage() {
                 >
                   Start auction
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleRandomPlayer}
+                  disabled={auctionLive || submitting}
+                >
+                  Random player
+                </Button>
                 {auctionLive ? (
                   <Button
                     type="button"
@@ -566,6 +640,9 @@ function AuctionPage() {
                         <span className="text-xs text-muted-foreground">
                           {player.role}
                         </span>
+                        {player.status === "UNSOLD" ? (
+                          <Badge variant="outline">Unsold</Badge>
+                        ) : null}
                       </CommandItem>
                     ))}
                   </CommandGroup>
@@ -766,6 +843,16 @@ function AuctionPage() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleMarkUnsold}
+                  disabled={
+                    !auctionLive || submitting || combinedBidHistory.length > 0
+                  }
+                >
+                  Mark UNSOLD
+                </Button>
               </div>
               <div className="rounded-md border bg-muted/20 p-3 text-sm">
                 <p className="font-medium">Sale summary</p>

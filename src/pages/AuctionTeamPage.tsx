@@ -490,15 +490,16 @@ function AuctionTeamPage() {
         </Card>
       </div>
       <footer className="mt-auto border-t py-4 text-center text-xs text-muted-foreground">
-        Powered by{" "}
+        © 2025{" "}
         <a
           href="https://teqgrow.com/"
           target="_blank"
           rel="noreferrer"
           className="font-medium text-foreground underline underline-offset-4"
         >
-          Teqgrow
+          TeqGrow
         </a>
+        . All rights reserved.
       </footer>
     </div>
   );
