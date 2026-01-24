@@ -32,7 +32,6 @@ import { LiveInfoCard } from "@/components/auction/LiveInfoCard";
 import { PlayerCard } from "@/components/auction/PlayerCard";
 import { PlayerTile } from "@/components/auction/PlayerTile";
 import { TeamCard } from "@/components/auction/TeamCard";
-import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 
 type CompletedSort = "timeDesc" | "timeAsc" | "priceDesc" | "priceAsc";
@@ -162,7 +161,7 @@ function AuctionViewPage() {
           ? formatAmount(player.soldPrice)
           : "Drafted";
       toast.success(
-        `${player.name} ${player.status === "DRAFTED" ? "drafted" : "sold"}`,
+        `${player.name} ${player.status === "DRAFTED" ? "Drafted" : "Sold"}`,
         {
           description: `${team ? formatTeamLabel(team, true) : "Team"} • ${priceLabel}`,
         },
@@ -678,7 +677,6 @@ function AuctionViewPage() {
         </a>
         . All rights reserved.
       </footer>
-      <Toaster />
     </div>
   );
 }

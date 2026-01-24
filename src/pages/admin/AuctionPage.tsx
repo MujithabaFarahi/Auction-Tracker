@@ -58,7 +58,7 @@ function AuctionPage() {
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState("");
   const [bidAmount, setBidAmount] = useState("");
-  const [differenceAmount, setDifferenceAmount] = useState("2000");
+  const [differenceAmount, setDifferenceAmount] = useState("5000");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingBids, setPendingBids] = useState<Bid[]>([]);
@@ -124,7 +124,8 @@ function AuctionPage() {
     () =>
       players
         .filter(
-          (player) => player.status === "AVAILABLE" || player.status === "UNSOLD",
+          (player) =>
+            player.status === "AVAILABLE" || player.status === "UNSOLD",
         )
         .sort((a, b) => {
           const statusRank = (status: Player["status"]) =>
@@ -201,17 +202,16 @@ function AuctionPage() {
   const leadingTeamCombined =
     teams.find((team) => team.id === leadingTeamId) ?? null;
 
-  const differenceValue = Math.max(2000, Number(differenceAmount) || 0);
+  const differenceValue = Math.max(5000, Number(differenceAmount) || 0);
   const minBid =
     combinedBidHistory.length === 0
       ? 20000
       : currentBidAmount + differenceValue;
-  const forceDiff5000 = currentBidAmount >= 40000 && currentBidAmount < 100000;
   const forceDiff10000 = currentBidAmount >= 100000;
 
   useEffect(() => {
     if (auctionState?.currentPlayerId) {
-      setDifferenceAmount("2000");
+      setDifferenceAmount("5000");
       lastSuggestedBidRef.current = 0;
     }
   }, [auctionState?.currentPlayerId]);
@@ -221,10 +221,7 @@ function AuctionPage() {
       setDifferenceAmount("10000");
       return;
     }
-    if (forceDiff5000 && differenceAmount !== "5000") {
-      setDifferenceAmount("5000");
-    }
-  }, [forceDiff10000, forceDiff5000, differenceAmount]);
+  }, [forceDiff10000, differenceAmount]);
 
   useEffect(() => {
     pendingBidsRef.current = pendingBids;
@@ -736,7 +733,7 @@ function AuctionPage() {
                     />
                   </div>
                   <div className="flex flex-wrap items-end gap-2">
-                    {[2000, 5000, 10000, 15000].map((value) => (
+                    {[5000, 10000].map((value) => (
                       <Button
                         key={`diff-${value}`}
                         type="button"
@@ -745,8 +742,7 @@ function AuctionPage() {
                         disabled={
                           !auctionLive ||
                           submitting ||
-                          (forceDiff5000 && value === 2000) ||
-                          (forceDiff10000 && value !== 10000 && value !== 15000)
+                          (forceDiff10000 && value !== 10000)
                         }
                       >
                         {formatAmount(value)}
