@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { onSnapshot } from "firebase/firestore";
 
 import { Badge } from "@/components/ui/badge";
@@ -17,11 +17,9 @@ import { formatAmount, formatTeamLabel } from "@/lib/format";
 import {
   PLAYER_ROLES,
   configDocRef,
-  ensureGlobalConfig,
   getAuctionStateDocRef,
   getPlayersCollectionRef,
   getTeamsCollectionRef,
-  getTournamentDocRef,
   tournamentsCollectionRef,
   type AuctionState,
   type Player,
@@ -36,6 +34,7 @@ import { PlayerCard } from "@/components/auction/PlayerCard";
 import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { PlayerTile } from "@/components/auction/PlayerTile";
 import { TeamCard } from "@/components/auction/TeamCard";
+import { TournamentCard } from "@/components/auction/TournamentCard";
 import { toast } from "sonner";
 
 type CompletedSort = "timeDesc" | "timeAsc" | "priceDesc" | "priceAsc";
@@ -48,15 +47,105 @@ type PlayersSort =
   | "baseDesc";
 
 function AuctionViewPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTournamentId, setActiveTournamentId] = useState<string | null>(
-    null,
+  const [searchParams] = useSearchParams();
+  const [activeTournamentId, setActiveTournamentId] = useState<string | null>(null);
+  const [tournaments, setTournaments] = useState<Tournament[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const { user } = useAuth();
+  const selectedTournamentId = searchParams.get("tournament");
+  const selectedTournament = tournaments?.find((item) => item.id === selectedTournamentId);
+
+  useEffect(
+    () =>
+      onSnapshot(configDocRef, (snapshot) => {
+        setActiveTournamentId(snapshot.data()?.activeTournamentId ?? null);
+      }),
+    [],
   );
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+
+  useEffect(
+    () =>
+      onSnapshot(
+        tournamentsCollectionRef,
+        (snapshot) => {
+          setTournaments(
+            snapshot.docs.map((item) => item.data()).sort((a, b) => b.createdAt - a.createdAt),
+          );
+        },
+        () => setLoadError(true),
+      ),
+    [],
+  );
+
+  if (selectedTournament) {
+    return (
+      <TournamentAuctionView
+        key={selectedTournament.id}
+        tournament={selectedTournament}
+        isLiveTournament={selectedTournament.id === activeTournamentId}
+      />
+    );
+  }
+
+  const orderedTournaments = [...(tournaments ?? [])].sort(
+    (a, b) => Number(b.id === activeTournamentId) - Number(a.id === activeTournamentId),
+  );
+
+  return (
+    <main className="min-h-svh bg-muted/30">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold">Tournaments</h1>
+            <p className="text-sm text-muted-foreground">
+              Select a tournament to view its auction, players, and teams.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {user ? <Button asChild><Link to="/admin/setup">Admin</Link></Button> : null}
+            <ThemeToggle />
+          </div>
+        </div>
+
+        {loadError ? (
+          <p role="alert" className="text-sm text-destructive">Unable to load tournaments.</p>
+        ) : tournaments === null ? (
+          <p role="status" className="text-sm text-muted-foreground">Loading tournaments…</p>
+        ) : (
+          <>
+            {selectedTournamentId ? (
+              <p role="status" className="text-sm text-muted-foreground">Tournament not found.</p>
+            ) : null}
+            {orderedTournaments.length ? (
+              <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {orderedTournaments.map((item) => (
+                  <li key={item.id}>
+                    <TournamentCard tournament={item} isLive={item.id === activeTournamentId} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No tournaments are available yet.</p>
+            )}
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
+
+type TournamentAuctionViewProps = {
+  tournament: Tournament;
+  isLiveTournament: boolean;
+};
+
+function TournamentAuctionView({ tournament, isLiveTournament }: TournamentAuctionViewProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedTournamentId = tournament.id;
+  const isCompleted = tournament.status === "COMPLETED";
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
-  const [tournament, setTournament] = useState<Tournament | null>(null);
   const [completedSort, setCompletedSort] = useState<CompletedSort>("timeDesc");
   const [playersSort, setPlayersSort] = useState<PlayersSort>("createdAsc");
   const [playersRole, setPlayersRole] = useState<string>("all");
@@ -65,10 +154,7 @@ function AuctionViewPage() {
   const seenSoldIdsRef = useRef<Set<string>>(new Set());
 
   const navigate = useNavigate();
-  const selectedTournamentId =
-    activeTournamentId ?? searchParams.get("tournament") ?? tournaments[0]?.id ?? null;
-
-  const activeTab = searchParams.get("tab") ?? "live";
+  const activeTab = searchParams.get("tab") ?? (isCompleted ? "completed" : "live");
   const handleTabChange = (value: string) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -80,32 +166,6 @@ function AuctionViewPage() {
   const { user } = useAuth();
 
   useEffect(() => {
-    void ensureGlobalConfig();
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(configDocRef, (snapshot) => {
-      const data = snapshot.exists() ? snapshot.data() : null;
-      setActiveTournamentId(data?.activeTournamentId ?? null);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(tournamentsCollectionRef, (snapshot) => {
-      const data = snapshot.docs
-        .map((docSnap) => docSnap.data())
-        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-      setTournaments(data);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedTournamentId) {
-      return;
-    }
-
     const teamsUnsubscribe = onSnapshot(
       getTeamsCollectionRef(selectedTournamentId),
       (snapshot) => {
@@ -131,37 +191,12 @@ function AuctionViewPage() {
       },
     );
 
-    const tournamentUnsubscribe = onSnapshot(
-      getTournamentDocRef(selectedTournamentId),
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          setTournament(null);
-          return;
-        }
-        setTournament(snapshot.data());
-      },
-    );
-
     return () => {
       teamsUnsubscribe();
       playersUnsubscribe();
       auctionUnsubscribe();
-      tournamentUnsubscribe();
     };
   }, [selectedTournamentId]);
-
-  useEffect(() => {
-    soldToastInitializedRef.current = false;
-    seenSoldIdsRef.current = new Set();
-  }, [selectedTournamentId]);
-
-  const handleTournamentChange = (tournamentId: string) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("tournament", tournamentId);
-      return next;
-    });
-  };
 
   const currentPlayer = useMemo(
     () =>
@@ -237,20 +272,15 @@ function AuctionViewPage() {
 
   const lastCompletedPlayer = sortedCompletedPlayers[0] ?? null;
 
-  const unsoldPlayers = useMemo(
-    () =>
-      players.filter(
-        (player) => player.status === "AVAILABLE" || player.status === "UNSOLD",
-      ),
-    [players],
-  );
-
   const filteredPlayers = useMemo(() => {
+    const playerPool = isCompleted
+      ? players
+      : players.filter((player) => player.status === "AVAILABLE" || player.status === "UNSOLD");
     const query = playerSearch.trim().toLowerCase();
     const filteredByRole =
       playersRole === "all"
-        ? unsoldPlayers
-        : unsoldPlayers.filter((player) => player.role === playersRole);
+        ? playerPool
+        : playerPool.filter((player) => player.role === playersRole);
     const filtered = query
       ? filteredByRole.filter((player) =>
           player.name.toLowerCase().includes(query),
@@ -277,13 +307,10 @@ function AuctionViewPage() {
       }
     };
     return sorted.sort((a, b) => {
-      const rankDiff = statusRank(a.status) - statusRank(b.status);
-      if (rankDiff !== 0) {
-        return rankDiff;
-      }
-      return compareBySort(a, b);
+      const rankDiff = isCompleted ? 0 : statusRank(a.status) - statusRank(b.status);
+      return rankDiff || compareBySort(a, b);
     });
-  }, [unsoldPlayers, playerSearch, playersSort, playersRole]);
+  }, [isCompleted, players, playerSearch, playersSort, playersRole]);
 
   const teamStats = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -302,112 +329,36 @@ function AuctionViewPage() {
     }));
   }, [teams, players]);
 
-  if (!selectedTournamentId) {
-    return (
-      <div className="min-h-svh bg-muted/30 flex flex-col">
-        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="w-full">
-              <h1 className="text-2xl font-semibold">Auction Tracker</h1>
-              <p className="text-sm text-muted-foreground">
-                Select a tournament to view auction results.
-              </p>
-            </div>
-            <div className="flex w-full justify-between items-center sm:w-auto gap-4">
-              {user ? (
-                <Button onClick={() => navigate("/admin/setup")}>Admin</Button>
-              ) : null}
-              <ThemeToggle />
-            </div>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Select Tournament</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {tournaments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No tournaments are available yet.
-                </p>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {tournaments.map((item) => (
-                    <Button
-                      key={item.id}
-                      type="button"
-                      variant="outline"
-                      className="h-auto flex-col items-start gap-1 py-4 text-left"
-                      onClick={() => handleTournamentChange(item.id)}
-                    >
-                      <span className="text-sm font-semibold">
-                        {item.name}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {item.season}
-                      </span>
-                      {item.id === activeTournamentId ? (
-                        <Badge variant="secondary">Live</Badge>
-                      ) : null}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-svh bg-muted/30 flex flex-col">
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="w-full">
             <h1 className="text-2xl font-semibold">
-              {tournament?.name ?? "Auction Tracker"}
+              {tournament.name}
             </h1>
             <p className="text-sm text-muted-foreground">
-              {tournament?.season ?? "Live auction view"}
+              {tournament.season}
             </p>
           </div>
           <div className="flex w-full justify-between items-center sm:w-auto gap-4">
+            {isLiveTournament ? <Badge>Live</Badge> : null}
+            {isCompleted ? <Badge variant="secondary">Completed</Badge> : null}
             {user ? (
-              <Button onClick={() => navigate("/admin/auction")}>Admin</Button>
-            ) : auctionState ? (
-              <Badge>{auctionState.status}</Badge>
+              <Button asChild><Link to={isLiveTournament ? "/admin/auction" : "/admin/setup"}>Admin</Link></Button>
             ) : null}
             <ThemeToggle />
           </div>
         </div>
 
-        {!activeTournamentId ? (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="w-full sm:max-w-sm">
-              <Select
-                value={selectedTournamentId ?? undefined}
-                onValueChange={handleTournamentChange}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select tournament" />
-                </SelectTrigger>
-                <SelectContent>
-                  {tournaments.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name} · {item.season}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        ) : null}
+        <Button asChild variant="outline" className="self-start">
+          <Link to="/auction/view">All tournaments</Link>
+        </Button>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="grid grid-cols-4 sm:flex">
             <TabsTrigger className="cursor-pointer px-4" value="live">
-              Live
+              {isLiveTournament ? "Live" : "Auction"}
             </TabsTrigger>
             <TabsTrigger className="cursor-pointer px-4" value="completed">
               Completed
@@ -424,7 +375,7 @@ function AuctionViewPage() {
             <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
               <Card className="gap-2">
                 <CardHeader>
-                  <CardTitle>Live Auction</CardTitle>
+                  <CardTitle>{isLiveTournament ? "Live Auction" : "Auction"}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 md:grid-cols-2">
@@ -722,7 +673,7 @@ function AuctionViewPage() {
 
           <TabsContent value="players" className="space-y-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle className="sm:min-w-48">Available Players</CardTitle>
+              <CardTitle className="sm:min-w-48">{isCompleted ? "Players" : "Available Players"}</CardTitle>
               <div className="flex flex-col sm:items-center gap-1.5 sm:gap-2 text-sm sm:flex-row w-full sm:justify-end">
                 <Input
                   className="h-10 w-full sm:max-w-48"
@@ -772,7 +723,7 @@ function AuctionViewPage() {
             </div>
             {filteredPlayers.length === 0 ? (
               <div className="rounded-lg border bg-background/70 py-6 text-center text-muted-foreground">
-                No unsold players found.
+                {isCompleted ? "No players found." : "No unsold players found."}
               </div>
             ) : (
               <div className="grid gap-1.5 md:gap-3 sm:grid-cols-2 md:grid-cols-3">

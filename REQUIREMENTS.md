@@ -119,7 +119,7 @@ Bid {
 - Create and select a tournament in Admin Setup
 - Configure the tournament's name, season, team purse, and team size
 - Set a tournament as live to use it in Admin Auction and the public Live view
-- With no live tournament selected, default the public view to the newest tournament and show a selector
+- Mark a tournament completed after bidding stops. Clear its live selection if it is the active tournament.
 
 ### Team Setup
 - Create teams with name + captain; total purse pulled from tournament
@@ -159,6 +159,8 @@ Bid {
 - Bid submission supports local queue with background sync
 
 ### View-Only Auction
+- Start on a tournament list with team and player counts. Mark the live event and let viewers open completed tournaments.
+- Keep the selected tournament in the URL and scope each tab to it
 - Current player and photo preview
 - Role + base price
 - Current bid + leading team

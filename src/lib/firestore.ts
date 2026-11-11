@@ -267,6 +267,24 @@ export async function setActiveTournament(tournamentId: string | null) {
   });
 }
 
+export async function completeTournament(tournamentId: string) {
+  await runTransaction(db, async (transaction) => {
+    const [config, auction] = await Promise.all([
+      transaction.get(configDocRef),
+      transaction.get(getAuctionStateDocRef(tournamentId)),
+    ]);
+
+    if (auction.data()?.status === "LIVE") {
+      throw new Error("Stop the current auction before marking the tournament completed.");
+    }
+
+    transaction.update(getTournamentDocRef(tournamentId), { status: "COMPLETED" });
+    if (config.data()?.activeTournamentId === tournamentId) {
+      transaction.update(configDocRef, { activeTournamentId: null });
+    }
+  });
+}
+
 export async function saveTeam(
   tournamentId: string,
   input: Omit<

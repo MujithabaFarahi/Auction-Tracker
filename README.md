@@ -92,10 +92,11 @@ This will run TypeScript type checking and then bundle the application into the 
 
 1. Sign in to **Admin → Setup** and click **New tournament**, or select an existing tournament.
 2. Enter the name, season, team purse, and team size. Save the tournament, then add teams and players to it.
-3. Click **Set as live**. The public Live tab and the admin auction controls now use the selected tournament.
+3. Click **Set as live**. The public tournament list badges the event **Live**, and the admin auction controls use that tournament.
 4. In **Admin → Auction**, select an available player and click **Start auction**.
+5. When bidding is over, select the tournament in Setup and click **Mark completed**. Its public page opens on the results tab.
 
-When no tournament is set live, public viewers can use the tournament selector. The Live tab shows a player as soon as the admin selects one, and bidding begins when the admin clicks **Start auction**.
+The public page starts with the tournament list. Each card shows the season, status, and total teams and players. Viewers can open any tournament, including completed events, and share its URL. Inside the live tournament, the Live tab shows the current player as soon as the admin selects one.
 
 ### Player photos
 

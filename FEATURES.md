@@ -6,8 +6,8 @@
 - Multi-tournament management with tournament-scoped teams, players, and auction state
 - Create new tournaments from setup without leaving the page
 - Select which tournament is being edited in setup
-- Set a tournament as the live tournament for the public view
-- Clear the live tournament so the public view falls back to tournament selection
+- Set or clear the live tournament
+- Mark a tournament completed while bidding is stopped
 - Team setup per tournament (name, captain; purse from tournament)
 - Player setup per tournament with role, base price, contact, area, regular team, and optional image link
 - Clickable photo thumbnails in Setup and a photo preview for the current player in Auction Control
@@ -31,8 +31,9 @@
 - Live bid queue with background sync for faster bidding
 
 ## Public Auction View
-- If a live tournament is set, the viewer opens directly into that tournament
-- If no live tournament is set, the viewer defaults to the latest tournament and shows a selector
+- Tournament list with team and player counts and Live, Completed, and Pending badges
+- Select any tournament to see its auction, results, players, and teams at a shareable URL
+- Live tournament appears first. Completed tournaments open on the results tab.
 - Live tab: current player + current bid + live bid history
 - Completed tab: card grid of sold players sorted by time or price
 - Players tab: tile grid with search + role filter + name/base/created sort

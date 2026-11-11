@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Create and manage multiple tournaments, each with its own teams, players, and auction state.
 - Choose which tournament the admin auction controls and public live view use.
+- Browse public tournaments by status and open completed events directly on their results.
+- See team and player totals on public tournament cards.
+- Mark a tournament completed from Admin Setup after bidding stops.
 - Add optional player photo URLs, including Google Drive file share links. Photos open the original link in a new tab, and missing or unavailable photos show a placeholder.
 - Public toasts announce newly sold and drafted players.
 - Firebase Auth email/password admin login flow.

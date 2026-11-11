@@ -24,6 +24,7 @@ import {
 import { formatAmount, formatTeamLabel } from "@/lib/format";
 import {
   PLAYER_ROLES,
+  completeTournament,
   configDocRef,
   createTournament,
   deletePlayer,
@@ -630,6 +631,23 @@ function SetupPage() {
     }
   };
 
+  const handleCompleteTournament = async () => {
+    if (!tournament || !window.confirm(`Mark ${tournament.name} as completed?`)) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await completeTournament(tournament.id);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to mark tournament completed.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleClearLiveTournament = async () => {
     setSaving(true);
     setError(null);
@@ -652,7 +670,7 @@ function SetupPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleTournamentSubmit}>
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_repeat(4,auto)]">
               <div className="space-y-2">
                 <Label htmlFor="tournament-select">Selected tournament</Label>
                 <Select
@@ -689,7 +707,9 @@ function SetupPage() {
                     {tournaments.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
                         {item.name} · {item.season}
-                        {item.id === activeTournamentId ? " · Live" : ""}
+                        {item.id === activeTournamentId
+                          ? " · Live"
+                          : item.status === "COMPLETED" ? " · Completed" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -731,11 +751,21 @@ function SetupPage() {
                   Clear live
                 </Button>
               </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCompleteTournament}
+                  disabled={saving || !tournament || auctionLive || tournament.status === "COMPLETED"}
+                >
+                  Mark completed
+                </Button>
+              </div>
             </div>
             <div className="mt-3 text-sm text-muted-foreground">
               {activeTournament
-                ? `Viewer page is currently using ${activeTournament.name} · ${activeTournament.season}.`
-                : "No live tournament selected. The viewer page will show tournament selection."}
+                ? `${activeTournament.name} · ${activeTournament.season} is marked live on the public tournament list.`
+                : "No tournament is marked live."}
             </div>
             <div className="grid gap-4 md:grid-cols-4">
               <div className="space-y-2">
