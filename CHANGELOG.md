@@ -62,5 +62,6 @@ All notable changes to this project will be documented in this file.
 - Admin auction resets selected team after a bid.
 
 ### Fixed
+- Completed tournaments hide the Auction tab and open results when following an old auction link.
 - Enforced bid rules (base price, higher than current bid, purse checks) at transaction layer.
 - Bid delete transaction now reads before writes to satisfy Firestore requirements.

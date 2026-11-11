@@ -33,7 +33,7 @@
 ## Public Auction View
 - Tournament list with team and player counts and Live, Completed, and Pending badges
 - Select any tournament to see its auction, results, players, and teams at a shareable URL
-- Live tournament appears first. Completed tournaments open on the results tab.
+- Live tournament appears first. Completed tournaments open on the results tab and offer Players and Teams for browsing.
 - Live tab: current player + current bid + live bid history
 - Completed tab: card grid of sold players sorted by time or price
 - Players tab: tile grid with search + role filter + name/base/created sort

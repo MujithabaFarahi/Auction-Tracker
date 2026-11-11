@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatAmount, formatTeamLabel } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import {
   PLAYER_ROLES,
   configDocRef,
@@ -154,7 +155,11 @@ function TournamentAuctionView({ tournament, isLiveTournament }: TournamentAucti
   const seenSoldIdsRef = useRef<Set<string>>(new Set());
 
   const navigate = useNavigate();
-  const activeTab = searchParams.get("tab") ?? (isCompleted ? "completed" : "live");
+  const requestedTab = searchParams.get("tab");
+  const activeTab =
+    requestedTab === "completed" || requestedTab === "players" || requestedTab === "teams"
+      ? requestedTab
+      : isCompleted ? "completed" : "live";
   const handleTabChange = (value: string) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -180,23 +185,18 @@ function TournamentAuctionView({ tournament, isLiveTournament }: TournamentAucti
       },
     );
 
-    const auctionUnsubscribe = onSnapshot(
-      getAuctionStateDocRef(selectedTournamentId),
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          setAuctionState(null);
-          return;
-        }
-        setAuctionState(snapshot.data());
-      },
-    );
+    const auctionUnsubscribe = isCompleted
+      ? undefined
+      : onSnapshot(getAuctionStateDocRef(selectedTournamentId), (snapshot) => {
+          setAuctionState(snapshot.data() ?? null);
+        });
 
     return () => {
       teamsUnsubscribe();
       playersUnsubscribe();
-      auctionUnsubscribe();
+      auctionUnsubscribe?.();
     };
-  }, [selectedTournamentId]);
+  }, [isCompleted, selectedTournamentId]);
 
   const currentPlayer = useMemo(
     () =>
@@ -356,10 +356,12 @@ function TournamentAuctionView({ tournament, isLiveTournament }: TournamentAucti
         </Button>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid grid-cols-4 sm:flex">
-            <TabsTrigger className="cursor-pointer px-4" value="live">
-              {isLiveTournament ? "Live" : "Auction"}
-            </TabsTrigger>
+          <TabsList className={cn("grid sm:flex", isCompleted ? "grid-cols-3" : "grid-cols-4")}>
+            {!isCompleted ? (
+              <TabsTrigger className="cursor-pointer px-4" value="live">
+                {isLiveTournament ? "Live" : "Auction"}
+              </TabsTrigger>
+            ) : null}
             <TabsTrigger className="cursor-pointer px-4" value="completed">
               Completed
             </TabsTrigger>
