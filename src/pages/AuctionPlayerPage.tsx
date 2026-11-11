@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 import { formatAmount, formatTeamLabel } from "@/lib/format";
-import { useAuth } from "@/lib/auth";
 import {
   getPlayerDocRef,
   getTeamsCollectionRef,
@@ -19,7 +18,6 @@ import { ArrowLeft } from "lucide-react";
 
 function AuctionPlayerPage() {
   const { tournamentId, playerId } = useParams();
-  const { user } = useAuth();
   const [player, setPlayer] = useState<Player | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
 
@@ -157,11 +155,11 @@ function AuctionPlayerPage() {
             <CardTitle>Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            {user ? (
+            {player?.regularTeam?.trim() ? (
               <p>
-                Contact:{" "}
+                Regular team:{" "}
                 <span className="font-medium">
-                  {player?.contactNumber ?? "-"}
+                  {player.regularTeam}
                 </span>
               </p>
             ) : null}

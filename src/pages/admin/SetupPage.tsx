@@ -32,6 +32,7 @@ import {
   ensureGlobalConfig,
   getAuctionStateDocRef,
   getPlayersCollectionRef,
+  getPlayerContact,
   getTeamDocRef,
   getTeamsCollectionRef,
   getTournamentDocRef,
@@ -81,6 +82,7 @@ type PlayerFormState = {
   imageUrl: string;
   assignToTeam: boolean;
   teamId: string;
+  assignmentPrice: string;
 };
 
 type TournamentFormState = {
@@ -105,6 +107,7 @@ const emptyPlayerForm: PlayerFormState = {
   imageUrl: "",
   assignToTeam: false,
   teamId: "",
+  assignmentPrice: "",
 };
 
 const emptyTournamentForm: TournamentFormState = {
@@ -252,6 +255,13 @@ function SetupPage() {
   const canEditPlayer = () => true;
   const canDeletePlayer = (player: Player) =>
     auctionState?.currentPlayerId !== player.id;
+  const editedPlayer = players.find((player) => player.id === editingPlayerId);
+  const canAssignPlayer =
+    !editingPlayerId ||
+    (editedPlayer &&
+      !editedPlayer.soldToTeamId &&
+      (editedPlayer.status === "AVAILABLE" || editedPlayer.status === "UNSOLD") &&
+      auctionState?.currentPlayerId !== editingPlayerId);
 
   const requireSelectedTournament = () => {
     if (!selectedTournamentId) {
@@ -343,8 +353,15 @@ function SetupPage() {
       setError("Player name is required and base price must be 0 or more.");
       return;
     }
-    if (playerForm.assignToTeam && !playerForm.teamId) {
+    const assignment = playerForm.assignToTeam
+      ? { teamId: playerForm.teamId, price: Number(playerForm.assignmentPrice || 0) }
+      : undefined;
+    if (assignment && !assignment.teamId) {
       setError("Select a team to assign this player.");
+      return;
+    }
+    if (assignment && (!Number.isSafeInteger(assignment.price) || assignment.price < 0)) {
+      setError("Enter a whole assignment price of 0 or more.");
       return;
     }
 
@@ -356,43 +373,49 @@ function SetupPage() {
 
     setSaving(true);
     try {
-      const existingPlayer = editingPlayerId
-        ? players.find((player) => player.id === editingPlayerId) ?? null
-        : null;
+      const details = {
+        name: playerForm.name,
+        contactNumber: playerForm.contactNumber,
+        area: playerForm.area,
+        role: playerForm.role,
+        basePrice,
+        regularTeam: playerForm.regularTeam,
+        imageUrl,
+      };
       if (editingPlayerId) {
-        await updatePlayer(tournamentId, editingPlayerId, {
-          name: playerForm.name,
-          contactNumber: playerForm.contactNumber,
-          area: playerForm.area,
-          role: playerForm.role,
-          basePrice,
-          regularTeam: playerForm.regularTeam,
-          imageUrl,
-          createdAt: existingPlayer?.createdAt ?? Date.now(),
-          bidHistory: existingPlayer?.bidHistory ?? [],
-        });
+        await updatePlayer(tournamentId, editingPlayerId, details, assignment);
       } else {
-        const assignedToTeam = playerForm.assignToTeam
-          ? playerForm.teamId
-          : null;
-        await savePlayer(tournamentId, {
-          name: playerForm.name,
-          contactNumber: playerForm.contactNumber,
-          area: playerForm.area,
-          role: playerForm.role,
-          basePrice,
-          regularTeam: playerForm.regularTeam,
-          status: assignedToTeam ? "DRAFTED" : "AVAILABLE",
-          soldToTeamId: assignedToTeam,
-          soldPrice: assignedToTeam ? 0 : null,
-          soldAt: assignedToTeam ? Date.now() : null,
-          imageUrl,
-        });
+        await savePlayer(tournamentId, details, assignment);
       }
       setPlayerForm(emptyPlayerForm);
       setEditingPlayerId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save player.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditPlayer = async (player: Player) => {
+    const tournamentId = requireSelectedTournament();
+    if (!tournamentId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const contactNumber = await getPlayerContact(tournamentId, player.id, player.contactNumber);
+      setEditingPlayerId(player.id);
+      setPlayerForm({
+        ...emptyPlayerForm,
+        name: player.name,
+        contactNumber,
+        area: player.area ?? "",
+        role: player.role,
+        basePrice: String(player.basePrice),
+        regularTeam: player.regularTeam ?? "",
+        imageUrl: player.imageUrl ?? "",
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load player details.");
     } finally {
       setSaving(false);
     }
@@ -573,10 +596,6 @@ function SetupPage() {
           role,
           basePrice,
           regularTeam: row.regularTeam || "",
-          status: "AVAILABLE",
-          soldToTeamId: null,
-          soldPrice: null,
-          soldAt: null,
           imageUrl: null,
         });
         imported += 1;
@@ -1100,7 +1119,7 @@ function SetupPage() {
                   For Google Drive photos, set General access to Anyone with the link.
                 </p>
               </div>
-              {!editingPlayerId ? (
+              {canAssignPlayer ? (
                 <>
                   <div className="flex items-center gap-2">
                     <input
@@ -1113,6 +1132,7 @@ function SetupPage() {
                           ...prev,
                           assignToTeam: event.target.checked,
                           teamId: event.target.checked ? prev.teamId : "",
+                          assignmentPrice: event.target.checked ? prev.assignmentPrice : "",
                         }))
                       }
                       disabled={saving || teams.length === 0}
@@ -1145,6 +1165,22 @@ function SetupPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <Label htmlFor="player-assignment-price">Assignment price (optional)</Label>
+                      <Input
+                        id="player-assignment-price"
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={playerForm.assignmentPrice}
+                        onChange={(event) => setPlayerForm((prev) => ({
+                          ...prev,
+                          assignmentPrice: event.target.value,
+                        }))}
+                        disabled={saving}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Leave blank for a free assignment. A price is deducted from the team's remaining purse.
+                      </p>
                     </div>
                   ) : null}
                 </>
@@ -1212,20 +1248,7 @@ function SetupPage() {
                           size="sm"
                           variant="outline"
                           disabled={!canEditPlayer() || saving}
-                          onClick={() => {
-                            setEditingPlayerId(player.id);
-                            setPlayerForm({
-                              name: player.name,
-                              contactNumber: player.contactNumber,
-                              area: player.area ?? "",
-                              role: player.role,
-                              basePrice: String(player.basePrice),
-                              regularTeam: player.regularTeam ?? "",
-                              imageUrl: player.imageUrl ?? "",
-                              assignToTeam: false,
-                              teamId: "",
-                            });
-                          }}
+                          onClick={() => void handleEditPlayer(player)}
                         >
                           Edit
                         </Button>

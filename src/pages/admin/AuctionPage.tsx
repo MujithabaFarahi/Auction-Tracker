@@ -37,6 +37,7 @@ import {
   ensureAuctionState,
   ensureGlobalConfig,
   getAuctionStateDocRef,
+  getPlayerContact,
   getPlayersCollectionRef,
   getTeamsCollectionRef,
   getTournamentDocRef,
@@ -178,6 +179,31 @@ function AuctionPage() {
       null,
     [players, auctionState?.currentPlayerId],
   );
+  const currentPlayerId = currentPlayer?.id;
+  const legacyContact = currentPlayer?.contactNumber;
+  const [contact, setContact] = useState<{
+    tournamentId: string;
+    playerId: string;
+    number: string;
+  } | null>(null);
+  const contactNumber =
+    contact?.tournamentId === activeTournamentId && contact?.playerId === currentPlayerId
+      ? contact?.number
+      : undefined;
+
+  useEffect(() => {
+    if (!activeTournamentId || !currentPlayerId) return;
+    let cancelled = false;
+    void getPlayerContact(activeTournamentId, currentPlayerId, legacyContact).then(
+      (number) => {
+        if (!cancelled) setContact({ tournamentId: activeTournamentId, playerId: currentPlayerId, number });
+      },
+      () => {
+        if (!cancelled) setContact(null);
+      },
+    );
+    return () => { cancelled = true; };
+  }, [activeTournamentId, currentPlayerId, legacyContact]);
 
   const selectedPlayer = useMemo(
     () => players.find((player) => player.id === selectedPlayerId) ?? null,
@@ -764,11 +790,11 @@ function AuctionPage() {
                       </p>
                     ) : null}
 
-                    {currentPlayer?.contactNumber ? (
+                    {contactNumber ? (
                       <p className="text-muted-foreground">
                         Contact number:{" "}
                         <span className="font-medium text-foreground">
-                          {currentPlayer.contactNumber}
+                          {contactNumber}
                         </span>
                       </p>
                     ) : null}

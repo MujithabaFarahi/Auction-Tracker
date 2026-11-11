@@ -104,9 +104,22 @@ In **Admin → Setup → Players**, paste a direct image URL or a Google Drive f
 
 ## Firebase deployment
 
-The app uses `config/app.activeTournamentId` to select the live tournament. Each tournament has its own teams, players, and auction state under `tournaments/{tournamentId}`. Configure your project's Firestore rules for these paths. Public viewers need read access to the auction data, and the app's signed-in admin actions need write access.
+The app uses `config/app.activeTournamentId` to select the live tournament. Each tournament has its own teams, players, and auction state under `tournaments/{tournamentId}`. The checked-in `firestore.rules` grants public reads on these auction paths and requires the Firebase Auth custom claim `auctionAdmin: true` for admin writes and contact access.
 
 The previous single-tournament version used `tournament/current`, `teams`, `players`, and `auctionState/current` at the database root. To carry existing data into the new version, back it up and migrate it into a tournament before switching the deployment. Preserve team and player document IDs so bid, roster, and sale references still resolve, and set the new tournament as live in Setup. The new version reads the tournament-scoped collections, so unmigrated records will be absent from its views. See [the Firestore data model](REQUIREMENTS.md#firestore-data-model).
+
+### Rolling out private contacts
+
+1. In a trusted Firebase Admin SDK environment, grant `auctionAdmin: true` to the designated auction admin accounts while preserving their existing custom claims. Have those admins sign out and back in to refresh their tokens.
+2. Deploy the scoped rules to the intended Firebase project with `firebase deploy --only firestore:rules --project <project-id>`. The rules deny client access to the obsolete root collections, so an old single-tournament build cannot read those records.
+3. Use Google Cloud Application Default Credentials with Firestore access and run `node scripts/migrate-player-contacts.mjs <project-id>` to review the counts. Add `--apply` to move existing contact numbers into `tournaments/{tournamentId}/playerContacts/{playerId}` and remove the original fields. Existing contacts in public player documents remain readable until this step finishes.
+4. Deploy the app build and verify an anonymous client can browse players, a signed-in viewer cannot read contact records, and an admin can open contacts in Setup.
+
+Run the migration outside a live auction. It prints counts and stops on conflicts. Rerun the dry-run after interrupted writes. For the local emulator, set `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` and use the demo project ID.
+
+### Assigning a player to an auction team
+
+In **Admin → Setup → Players**, open **Edit** for an unassigned player and select **Assign player to a team**. Leave **Assignment price** blank for a free draft, or enter a price to record the player as sold and deduct it from the team's remaining purse. The assignment checks roster capacity and the remaining purse. **Regular team** is an optional player detail.
 
 ---
 *Created as an MVP for managing seamless, fast-paced sports auctions.*

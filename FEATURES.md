@@ -11,7 +11,8 @@
 - Team setup per tournament (name, captain; purse from tournament)
 - Player setup per tournament with role, base price, contact, area, regular team, and optional image link
 - Clickable photo thumbnails in Setup and a photo preview for the current player in Auction Control
-- Player setup option to assign player directly to a team (0 cost)
+- Assign an unassigned player to a team when adding or editing them. An optional price deducts from the team's remaining purse.
+- View and edit private contact numbers in admin Setup and view the selected player's contact in admin Auction
 - Edit players even when auction is live
 - Edit team details (name, captain, spent, remaining)
 - Delete players (sold player deletion refunds team purse)
@@ -44,7 +45,7 @@
 - Placeholders for missing or unavailable photos
 - Toasts for new sales and drafted players
 - Team labels shown as "Team (Captain)" for clarity
-- Player detail displays the contact number in the signed-in UI
+- Player details display the regular team when provided
 - Footer credit link (Powered by Teqgrow)
 
 ## Real-Time

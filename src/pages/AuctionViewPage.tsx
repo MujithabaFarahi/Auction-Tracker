@@ -52,7 +52,7 @@ function AuctionViewPage() {
   const [activeTournamentId, setActiveTournamentId] = useState<string | null>(null);
   const [tournaments, setTournaments] = useState<Tournament[] | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const { user } = useAuth();
+  const { isAdmin } = useAuth();
   const selectedTournamentId = searchParams.get("tournament");
   const selectedTournament = tournaments?.find((item) => item.id === selectedTournamentId);
 
@@ -103,7 +103,7 @@ function AuctionViewPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {user ? <Button asChild><Link to="/admin/setup">Admin</Link></Button> : null}
+            {isAdmin ? <Button asChild><Link to="/admin/setup">Admin</Link></Button> : null}
             <ThemeToggle />
           </div>
         </div>
@@ -168,7 +168,7 @@ function TournamentAuctionView({ tournament, isLiveTournament }: TournamentAucti
     });
   };
 
-  const { user } = useAuth();
+  const { isAdmin } = useAuth();
 
   useEffect(() => {
     const teamsUnsubscribe = onSnapshot(
@@ -344,7 +344,7 @@ function TournamentAuctionView({ tournament, isLiveTournament }: TournamentAucti
           <div className="flex w-full justify-between items-center sm:w-auto gap-4">
             {isLiveTournament ? <Badge>Live</Badge> : null}
             {isCompleted ? <Badge variant="secondary">Completed</Badge> : null}
-            {user ? (
+            {isAdmin ? (
               <Button asChild><Link to={isLiveTournament ? "/admin/auction" : "/admin/setup"}>Admin</Link></Button>
             ) : null}
             <ThemeToggle />

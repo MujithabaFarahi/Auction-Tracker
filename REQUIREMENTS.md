@@ -63,7 +63,6 @@ Rules: remainingPurse must not go below zero.
 ```
 players {
   name: string
-  contactNumber: string
   area?: string
   role: string
   basePrice: number
@@ -77,6 +76,8 @@ players {
   bidHistory?: Bid[]
 }
 ```
+
+Contact numbers are stored in `tournaments/{tournamentId}/playerContacts/{playerId}` and require the `auctionAdmin` custom claim.
 Allowed roles:
 - Batsman
 - Wicket-keeper Batsman
@@ -113,7 +114,7 @@ Bid {
 ## Functional Requirements
 ### Admin Authentication
 - Email/password login
-- The admin UI accepts signed-in Firebase users. Enforce write authorization with Firestore rules.
+- The admin UI and Firestore rules require the `auctionAdmin: true` Firebase custom claim.
 
 ### Tournament Setup
 - Create and select a tournament in Admin Setup
@@ -130,7 +131,8 @@ Bid {
 - Add/edit players before auction
 - Editing allowed even when auction is live
 - Exclude sold and drafted players from auction selection
-- Optionally draft a player to a team at creation with zero purse impact
+- Assign an unassigned player at creation or while editing. A blank price leaves the purse unchanged. A positive price records a sale and reduces the remaining purse.
+- Reject assignments that exceed the team's roster size or remaining purse
 - Admin can delete players
 - Deleting sold players refunds team purse by soldPrice
 - Optional photo link accepts a direct image URL or Google Drive file share URL

@@ -38,7 +38,7 @@ import { Badge } from "@/components/ui/badge";
 
 function AuctionTeamPage() {
   const { tournamentId, teamId } = useParams();
-  const { user } = useAuth();
+  const { isAdmin } = useAuth();
   const [team, setTeam] = useState<Team | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [tournament, setTournament] = useState<Tournament | null>(null);
@@ -163,7 +163,7 @@ function AuctionTeamPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            {user ? (
+            {isAdmin ? (
               <Button
                 type="button"
                 variant="outline"
@@ -223,7 +223,7 @@ function AuctionTeamPage() {
           </Card>
         </div>
 
-        {user ? (
+        {isAdmin ? (
           <Card className="mt-6">
             <CardHeader>
               <CardTitle>Add player (Admin)</CardTitle>
@@ -316,7 +316,7 @@ function AuctionTeamPage() {
           </Card>
         ) : null}
 
-        {user && isEditing ? (
+        {isAdmin && isEditing ? (
           <Card className="mt-6">
             <CardHeader>
               <CardTitle>Edit Team (Admin)</CardTitle>

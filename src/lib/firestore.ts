@@ -3,11 +3,13 @@ import type {
   FirestoreDataConverter,
   QueryDocumentSnapshot,
   SnapshotOptions,
+  Transaction,
   WithFieldValue,
 } from "firebase/firestore";
 import {
   addDoc,
   collection,
+  deleteField,
   doc,
   getDoc,
   runTransaction,
@@ -70,7 +72,7 @@ export type Bid = {
 
 export type PlayerDoc = {
   name: string;
-  contactNumber: string;
+  contactNumber?: string;
   area?: string;
   role: PlayerRole;
   basePrice: number;
@@ -194,6 +196,17 @@ export const getPlayersCollectionRef = (tournamentId: string) =>
 
 export const getPlayerDocRef = (tournamentId: string, playerId: string) =>
   doc(getPlayersCollectionRef(tournamentId), playerId);
+
+const getPlayerContactRef = (tournamentId: string, playerId: string) =>
+  doc(db, "tournaments", tournamentId, "playerContacts", playerId);
+
+export async function getPlayerContact(tournamentId: string, playerId: string, legacyNumber?: string) {
+  const snapshot = await runTransaction(db, (transaction) =>
+    transaction.get(getPlayerContactRef(tournamentId, playerId)),
+  );
+  const number = snapshot.data()?.contactNumber ?? legacyNumber;
+  return typeof number === "string" ? number : "";
+}
 
 export async function ensureGlobalConfig() {
   const snapshot = await getDoc(configDocRef);
@@ -342,45 +355,135 @@ export function calculateMaxBid(
   return remainingPurse - (remainingSlots - 1) * minReserve;
 }
 
-export type NewPlayerInput = Omit<
+type PlayerDetailsInput = Omit<
   PlayerDoc,
-  "status" | "soldToTeamId" | "soldPrice" | "soldAt" | "imageUrl"
+  "status" | "soldToTeamId" | "soldPrice" | "soldAt" | "imageUrl" | "createdAt" | "bidHistory"
 > & {
-  status?: PlayerStatus;
-  soldToTeamId?: string | null;
-  soldPrice?: number | null;
-  soldAt?: number | null;
+  contactNumber: string;
   imageUrl?: string | null;
 };
 
-export async function savePlayer(tournamentId: string, input: NewPlayerInput) {
-  const {
-    status = "AVAILABLE",
-    soldToTeamId = null,
-    soldPrice = null,
-    soldAt = null,
-    imageUrl = null,
-    createdAt,
-    ...rest
-  } = input;
-  await addDoc(getPlayersCollectionRef(tournamentId), {
-    ...rest,
-    status,
-    soldToTeamId,
-    soldPrice,
-    soldAt,
-    imageUrl,
-    createdAt: createdAt ?? Date.now(),
-    bidHistory: [],
-  } as unknown as WithFieldValue<Player>);
+type PlayerAssignment = {
+  teamId: string;
+  price: number;
+};
+
+async function stagePlayerAssignment(
+  transaction: Transaction,
+  tournamentId: string,
+  { teamId, price }: PlayerAssignment,
+): Promise<Pick<PlayerDoc, "status" | "soldToTeamId" | "soldPrice" | "soldAt">> {
+  if (!Number.isSafeInteger(price) || price < 0) {
+    throw new Error("Enter a whole assignment price of 0 or more.");
+  }
+
+  const teamRef = getTeamDocRef(tournamentId, teamId);
+  const [team, tournament] = await Promise.all([
+    transaction.get(teamRef),
+    transaction.get(getTournamentDocRef(tournamentId)),
+  ]);
+  if (!team.exists() || !tournament.exists()) {
+    throw new Error("Team or tournament not found.");
+  }
+  const teamData = team.data();
+  const teamSize = tournament.data().teamSize ?? 9;
+  const playersCount = (teamData.playersCount ?? 0) + 1;
+  if (playersCount > teamSize) {
+    throw new Error("This team has no roster slots left.");
+  }
+  const remainingPurse = teamData.remainingPurse - price;
+  if (!Number.isFinite(remainingPurse) || remainingPurse < 0) {
+    throw new Error("The assignment price exceeds the team's remaining purse.");
+  }
+
+  transaction.update(teamRef, {
+    playersCount,
+    remainingPurse,
+    spentAmount: (teamData.spentAmount ?? teamData.totalPurse - teamData.remainingPurse) + price,
+    maxBidAmount: calculateMaxBid(remainingPurse, playersCount, teamSize),
+  });
+  return {
+    status: price > 0 ? "SOLD" : "DRAFTED",
+    soldToTeamId: teamId,
+    soldPrice: price,
+    soldAt: Date.now(),
+  };
+}
+
+async function requireUnassignedPlayer(
+  transaction: Transaction,
+  tournamentId: string,
+  playerId: string,
+) {
+  const [player, auction] = await Promise.all([
+    transaction.get(getPlayerDocRef(tournamentId, playerId)),
+    transaction.get(getAuctionStateDocRef(tournamentId)),
+  ]);
+  if (!player.exists()) {
+    throw new Error("Player not found.");
+  }
+  if (player.data().soldToTeamId || ["SOLD", "DRAFTED"].includes(player.data().status)) {
+    throw new Error("Player is already assigned to a team.");
+  }
+  if (auction.data()?.currentPlayerId === playerId) {
+    throw new Error("Select a different auction player before assigning this player.");
+  }
+}
+
+export async function savePlayer(
+  tournamentId: string,
+  input: PlayerDetailsInput,
+  assignment?: PlayerAssignment,
+) {
+  const { contactNumber, imageUrl = null, ...details } = input;
+  const playerRef = doc(getPlayersCollectionRef(tournamentId));
+  await runTransaction(db, async (transaction) => {
+    const roster = assignment
+      ? await stagePlayerAssignment(transaction, tournamentId, assignment)
+      : { status: "AVAILABLE" as const, soldToTeamId: null, soldPrice: null, soldAt: null };
+    transaction.set(playerRef, {
+      id: playerRef.id,
+      ...details,
+      ...roster,
+      imageUrl,
+      createdAt: Date.now(),
+      bidHistory: [],
+    });
+    if (contactNumber.trim()) {
+      transaction.set(getPlayerContactRef(tournamentId, playerRef.id), {
+        contactNumber: contactNumber.trim(),
+      });
+    }
+  });
 }
 
 export async function updatePlayer(
   tournamentId: string,
   id: string,
-  input: Omit<PlayerDoc, "status" | "soldToTeamId" | "soldPrice" | "soldAt">,
+  input: PlayerDetailsInput,
+  assignment?: PlayerAssignment,
 ) {
-  await updateDoc(getPlayerDocRef(tournamentId, id), input);
+  const { contactNumber, imageUrl = null, ...details } = input;
+  await runTransaction(db, async (transaction) => {
+    if (assignment) {
+      await requireUnassignedPlayer(transaction, tournamentId, id);
+    }
+    const roster = assignment
+      ? await stagePlayerAssignment(transaction, tournamentId, assignment)
+      : {};
+    transaction.update(getPlayerDocRef(tournamentId, id), {
+      ...details,
+      ...roster,
+      imageUrl,
+      contactNumber: deleteField(),
+    });
+    const contactRef = getPlayerContactRef(tournamentId, id);
+    if (contactNumber.trim()) {
+      transaction.set(contactRef, { contactNumber: contactNumber.trim() });
+    } else {
+      transaction.delete(contactRef);
+    }
+  });
 }
 
 export async function deletePlayer(tournamentId: string, playerId: string) {
@@ -420,6 +523,7 @@ export async function deletePlayer(tournamentId: string, playerId: string) {
     }
 
     transaction.delete(playerRef);
+    transaction.delete(getPlayerContactRef(tournamentId, playerId));
   });
 }
 
@@ -429,62 +533,36 @@ export async function assignPlayerToTeamNoPurse(
   teamId: string,
 ) {
   await runTransaction(db, async (transaction) => {
-    const playerRef = getPlayerDocRef(tournamentId, playerId);
-    const playerSnap = await transaction.get(playerRef);
-    if (!playerSnap.exists()) {
-      throw new Error("Player not found.");
-    }
-    const playerData = playerSnap.data();
-    if (
-      (playerData.status === "SOLD" || playerData.status === "DRAFTED") &&
-      playerData.soldToTeamId
-    ) {
-      throw new Error("Player is already assigned to a team.");
-    }
-
-    const teamRef = getTeamDocRef(tournamentId, teamId);
-    const teamSnap = await transaction.get(teamRef);
-    if (!teamSnap.exists()) {
-      throw new Error("Team not found.");
-    }
-    const teamData = teamSnap.data();
-
-    const tournamentSnap = await transaction.get(getTournamentDocRef(tournamentId));
-    const tournamentData = tournamentSnap.exists() ? tournamentSnap.data() : null;
-    const teamSize = tournamentData?.teamSize ?? 9;
-    const nextPlayersCount = (teamData.playersCount ?? 0) + 1;
-
-    transaction.update(playerRef, {
-      status: "DRAFTED",
-      soldToTeamId: teamId,
-      soldPrice: 0,
-      soldAt: Date.now(),
-    });
-
-    transaction.update(teamRef, {
-      playersCount: nextPlayersCount,
-      maxBidAmount: calculateMaxBid(
-        teamData.remainingPurse,
-        nextPlayersCount,
-        teamSize,
-      ),
-    });
+    await requireUnassignedPlayer(transaction, tournamentId, playerId);
+    const roster = await stagePlayerAssignment(transaction, tournamentId, { teamId, price: 0 });
+    transaction.update(getPlayerDocRef(tournamentId, playerId), roster);
   });
 }
 
 export async function setCurrentPlayer(tournamentId: string, playerId: string) {
-  await updateDoc(getPlayerDocRef(tournamentId, playerId), { bidHistory: [] });
-  await setDoc(
-    getAuctionStateDocRef(tournamentId),
-    {
+  await runTransaction(db, async (transaction) => {
+    const playerRef = getPlayerDocRef(tournamentId, playerId);
+    const auctionRef = getAuctionStateDocRef(tournamentId);
+    const [player, auction] = await Promise.all([
+      transaction.get(playerRef),
+      transaction.get(auctionRef),
+    ]);
+    if (!player.exists() || player.data().soldToTeamId ||
+      !["AVAILABLE", "UNSOLD"].includes(player.data().status)) {
+      throw new Error("Select an available player.");
+    }
+    if (auction.data()?.status === "LIVE") {
+      throw new Error("Stop the live auction before changing players.");
+    }
+    transaction.update(playerRef, { bidHistory: [] });
+    transaction.set(auctionRef, {
       currentPlayerId: playerId,
       currentBid: 20000,
       leadingTeamId: null,
       status: "IDLE",
       bidHistory: [],
-    },
-    { merge: true },
-  );
+    }, { merge: true });
+  });
 }
 
 export async function startAuction(tournamentId: string) {
