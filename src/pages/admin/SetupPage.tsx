@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { doc, onSnapshot, setDoc, writeBatch } from "firebase/firestore";
 
+import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -70,6 +71,7 @@ type PlayerFormState = {
   role: PlayerRole;
   basePrice: string;
   regularTeam: string;
+  imageUrl: string;
   assignToTeam: boolean;
   teamId: string;
 };
@@ -93,6 +95,7 @@ const emptyPlayerForm: PlayerFormState = {
   role: PLAYER_ROLES[0],
   basePrice: "",
   regularTeam: "",
+  imageUrl: "",
   assignToTeam: false,
   teamId: "",
 };
@@ -259,6 +262,12 @@ function SetupPage() {
       return;
     }
 
+    const imageUrl = playerForm.imageUrl.trim() || null;
+    if (imageUrl && !/^https?:\/\//i.test(imageUrl)) {
+      setError("Enter an image link that starts with https:// or http://.");
+      return;
+    }
+
     setSaving(true);
     try {
       if (editingPlayerId) {
@@ -269,6 +278,7 @@ function SetupPage() {
           role: playerForm.role,
           basePrice,
           regularTeam: playerForm.regularTeam,
+          imageUrl,
         });
       } else {
         const assignedToTeam = playerForm.assignToTeam
@@ -281,6 +291,7 @@ function SetupPage() {
           role: playerForm.role,
           basePrice,
           regularTeam: playerForm.regularTeam,
+          imageUrl,
           status: assignedToTeam ? "DRAFTED" : "AVAILABLE",
           soldToTeamId: assignedToTeam,
           soldPrice: assignedToTeam ? 0 : null,
@@ -788,6 +799,26 @@ function SetupPage() {
                   disabled={saving}
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="player-image-url">Image link (optional)</Label>
+                <Input
+                  id="player-image-url"
+                  type="url"
+                  placeholder="Paste a Google Drive link or image URL"
+                  aria-describedby="player-image-url-help"
+                  value={playerForm.imageUrl}
+                  onChange={(event) =>
+                    setPlayerForm((prev) => ({
+                      ...prev,
+                      imageUrl: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
+                />
+                <p id="player-image-url-help" className="text-xs text-muted-foreground">
+                  For Google Drive photos, set General access to Anyone with the link.
+                </p>
+              </div>
               {!editingPlayerId ? (
                 <>
                   <div className="flex items-center gap-2">
@@ -884,7 +915,12 @@ function SetupPage() {
               ) : (
                 sortedPlayers.map((player) => (
                   <TableRow key={player.id}>
-                    <TableCell>{player.name}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <PlayerPhoto name={player.name} imageUrl={player.imageUrl} />
+                        {player.name}
+                      </div>
+                    </TableCell>
                     <TableCell>{player.role}</TableCell>
                     <TableCell>{formatAmount(player.basePrice)}</TableCell>
                     <TableCell>{player.status}</TableCell>
@@ -904,6 +940,7 @@ function SetupPage() {
                               role: player.role,
                               basePrice: String(player.basePrice),
                               regularTeam: player.regularTeam ?? "",
+                              imageUrl: player.imageUrl ?? "",
                               assignToTeam: false,
                               teamId: "",
                             });

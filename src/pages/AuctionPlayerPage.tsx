@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { doc, onSnapshot } from "firebase/firestore";
 
+import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -96,13 +97,20 @@ function AuctionPlayerPage() {
     <div className="flex min-h-svh flex-col">
       <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-2xl font-semibold">
-              {player?.name ?? "Player"}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {player?.role ?? ""}
-            </p>
+          <div className="flex min-w-0 items-center gap-4">
+            <PlayerPhoto
+              name={player?.name}
+              imageUrl={player?.imageUrl}
+              size="preview"
+            />
+            <div className="min-w-0">
+              <h1 className="break-words text-2xl font-semibold">
+                {player?.name ?? "Player"}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {player?.role ?? ""}
+              </p>
+            </div>
           </div>
 
           <Button variant={"ghost"} onClick={() => navigate(-1)}>

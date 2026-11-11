@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/command";
 import { formatAmount, formatTeamLabel } from "@/lib/format";
 import { LiveInfoCard } from "@/components/auction/LiveInfoCard";
+import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { TeamCard } from "@/components/auction/TeamCard";
 import {
   auctionStateDocRef,
@@ -653,6 +654,13 @@ function AuctionPage() {
                 primary={currentPlayer ? currentPlayer.name : "Not selected"}
                 secondary={
                   currentPlayer ? currentPlayer.role : "Awaiting selection"
+                }
+                media={
+                  <PlayerPhoto
+                    name={currentPlayer?.name}
+                    imageUrl={currentPlayer?.imageUrl}
+                    size="preview"
+                  />
                 }
                 meta={
                   <div className="space-y-0.5">

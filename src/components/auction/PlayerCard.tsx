@@ -1,11 +1,13 @@
 import type { MouseEvent } from "react";
 
+import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type PlayerCardProps = {
   name: string;
   role: string;
+  imageUrl?: string | null;
   badge?: string;
   teamLabel?: string;
   basePrice: string;
@@ -17,6 +19,7 @@ type PlayerCardProps = {
 function PlayerCard({
   name,
   role,
+  imageUrl,
   badge,
   teamLabel,
   basePrice,
@@ -32,11 +35,14 @@ function PlayerCard({
       <CardHeader>
         <>
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <CardTitle className="text-base capitalize">
-                {name.toLowerCase()}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">{role}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <PlayerPhoto name={name} imageUrl={imageUrl} />
+              <div className="min-w-0">
+                <CardTitle className="break-words text-base capitalize">
+                  {name.toLowerCase()}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">{role}</p>
+              </div>
             </div>
             {badge ? <Badge className="shrink-0">{badge}</Badge> : null}
           </div>

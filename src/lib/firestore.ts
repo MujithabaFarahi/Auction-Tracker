@@ -52,6 +52,7 @@ export type Player = {
   role: PlayerRole;
   basePrice: number;
   regularTeam?: string;
+  imageUrl?: string | null;
   createdAt?: number;
   status: PlayerStatus;
   soldToTeamId: string | null;

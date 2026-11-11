@@ -30,6 +30,7 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { LiveInfoCard } from "@/components/auction/LiveInfoCard";
 import { PlayerCard } from "@/components/auction/PlayerCard";
+import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { PlayerTile } from "@/components/auction/PlayerTile";
 import { TeamCard } from "@/components/auction/TeamCard";
 import { toast } from "sonner";
@@ -308,6 +309,13 @@ function AuctionViewPage() {
                       secondary={
                         currentPlayer ? currentPlayer.role : "Not started"
                       }
+                      media={
+                        <PlayerPhoto
+                          name={currentPlayer?.name}
+                          imageUrl={currentPlayer?.imageUrl}
+                          size="preview"
+                        />
+                      }
                       meta={
                         <>
                           <p>
@@ -442,6 +450,7 @@ function AuctionViewPage() {
                             <PlayerCard
                               name={lastCompletedPlayer.name}
                               role={lastCompletedPlayer.role}
+                              imageUrl={lastCompletedPlayer.imageUrl}
                               badge={
                                 isUnsold
                                   ? "Unsold"
@@ -538,6 +547,7 @@ function AuctionViewPage() {
                       key={player.id}
                       name={player.name}
                       role={player.role}
+                      imageUrl={player.imageUrl}
                       badge={
                         isUnsold ? "Unsold" : isDrafted ? "Drafted" : "Sold"
                       }
@@ -632,6 +642,7 @@ function AuctionViewPage() {
                     key={player.id}
                     name={player.name}
                     role={player.role}
+                    imageUrl={player.imageUrl}
                     basePrice={formatAmount(player.basePrice)}
                     onClick={() => navigate(`/auction/players/${player.id}`)}
                   />
