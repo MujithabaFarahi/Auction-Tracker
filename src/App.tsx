@@ -14,8 +14,14 @@ function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/auction/view" replace />} />
       <Route path="/auction/view" element={<AuctionViewPage />} />
-      <Route path="/auction/teams/:teamId" element={<AuctionTeamPage />} />
-      <Route path="/auction/players/:playerId" element={<AuctionPlayerPage />} />
+      <Route
+        path="/auction/tournaments/:tournamentId/teams/:teamId"
+        element={<AuctionTeamPage />}
+      />
+      <Route
+        path="/auction/tournaments/:tournamentId/players/:playerId"
+        element={<AuctionPlayerPage />}
+      />
       <Route path="/admin/login" element={<LoginPage />} />
       <Route
         path="/admin"

@@ -15,11 +15,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatAmount, formatTeamLabel } from "@/lib/format";
 import {
-  auctionStateDocRef,
-  playersCollectionRef,
-  teamsCollectionRef,
-  tournamentDocRef,
   PLAYER_ROLES,
+  configDocRef,
+  ensureGlobalConfig,
+  getAuctionStateDocRef,
+  getPlayersCollectionRef,
+  getTeamsCollectionRef,
+  getTournamentDocRef,
+  tournamentsCollectionRef,
   type AuctionState,
   type Player,
   type Team,
@@ -46,6 +49,10 @@ type PlayersSort =
 
 function AuctionViewPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTournamentId, setActiveTournamentId] = useState<string | null>(
+    null,
+  );
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
@@ -58,6 +65,8 @@ function AuctionViewPage() {
   const seenSoldIdsRef = useRef<Set<string>>(new Set());
 
   const navigate = useNavigate();
+  const selectedTournamentId =
+    activeTournamentId ?? searchParams.get("tournament") ?? tournaments[0]?.id ?? null;
 
   const activeTab = searchParams.get("tab") ?? "live";
   const handleTabChange = (value: string) => {
@@ -71,48 +80,88 @@ function AuctionViewPage() {
   const { user } = useAuth();
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(teamsCollectionRef, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<Team, "id">),
-      }));
-      setTeams(data);
+    void ensureGlobalConfig();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(configDocRef, (snapshot) => {
+      const data = snapshot.exists() ? snapshot.data() : null;
+      setActiveTournamentId(data?.activeTournamentId ?? null);
     });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(playersCollectionRef, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<Player, "id">),
-      }));
-      setPlayers(data);
+    const unsubscribe = onSnapshot(tournamentsCollectionRef, (snapshot) => {
+      const data = snapshot.docs
+        .map((docSnap) => docSnap.data())
+        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+      setTournaments(data);
     });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(auctionStateDocRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setAuctionState(null);
-        return;
-      }
-      setAuctionState(snapshot.data() as AuctionState);
-    });
-    return () => unsubscribe();
-  }, []);
+    if (!selectedTournamentId) {
+      return;
+    }
+
+    const teamsUnsubscribe = onSnapshot(
+      getTeamsCollectionRef(selectedTournamentId),
+      (snapshot) => {
+        setTeams(snapshot.docs.map((docSnap) => docSnap.data()));
+      },
+    );
+
+    const playersUnsubscribe = onSnapshot(
+      getPlayersCollectionRef(selectedTournamentId),
+      (snapshot) => {
+        setPlayers(snapshot.docs.map((docSnap) => docSnap.data()));
+      },
+    );
+
+    const auctionUnsubscribe = onSnapshot(
+      getAuctionStateDocRef(selectedTournamentId),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setAuctionState(null);
+          return;
+        }
+        setAuctionState(snapshot.data());
+      },
+    );
+
+    const tournamentUnsubscribe = onSnapshot(
+      getTournamentDocRef(selectedTournamentId),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setTournament(null);
+          return;
+        }
+        setTournament(snapshot.data());
+      },
+    );
+
+    return () => {
+      teamsUnsubscribe();
+      playersUnsubscribe();
+      auctionUnsubscribe();
+      tournamentUnsubscribe();
+    };
+  }, [selectedTournamentId]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(tournamentDocRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setTournament(null);
-        return;
-      }
-      setTournament(snapshot.data() as Tournament);
+    soldToastInitializedRef.current = false;
+    seenSoldIdsRef.current = new Set();
+  }, [selectedTournamentId]);
+
+  const handleTournamentChange = (tournamentId: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("tournament", tournamentId);
+      return next;
     });
-    return () => unsubscribe();
-  }, []);
+  };
 
   const currentPlayer = useMemo(
     () =>
@@ -253,6 +302,64 @@ function AuctionViewPage() {
     }));
   }, [teams, players]);
 
+  if (!selectedTournamentId) {
+    return (
+      <div className="min-h-svh bg-muted/30 flex flex-col">
+        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="w-full">
+              <h1 className="text-2xl font-semibold">Auction Tracker</h1>
+              <p className="text-sm text-muted-foreground">
+                Select a tournament to view auction results.
+              </p>
+            </div>
+            <div className="flex w-full justify-between items-center sm:w-auto gap-4">
+              {user ? (
+                <Button onClick={() => navigate("/admin/setup")}>Admin</Button>
+              ) : null}
+              <ThemeToggle />
+            </div>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Select Tournament</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {tournaments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No tournaments are available yet.
+                </p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {tournaments.map((item) => (
+                    <Button
+                      key={item.id}
+                      type="button"
+                      variant="outline"
+                      className="h-auto flex-col items-start gap-1 py-4 text-left"
+                      onClick={() => handleTournamentChange(item.id)}
+                    >
+                      <span className="text-sm font-semibold">
+                        {item.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {item.season}
+                      </span>
+                      {item.id === activeTournamentId ? (
+                        <Badge variant="secondary">Live</Badge>
+                      ) : null}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-svh bg-muted/30 flex flex-col">
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6">
@@ -274,6 +381,28 @@ function AuctionViewPage() {
             <ThemeToggle />
           </div>
         </div>
+
+        {!activeTournamentId ? (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="w-full sm:max-w-sm">
+              <Select
+                value={selectedTournamentId ?? undefined}
+                onValueChange={handleTournamentChange}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select tournament" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tournaments.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.name} · {item.season}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        ) : null}
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="grid grid-cols-4 sm:flex">
@@ -321,7 +450,9 @@ function AuctionViewPage() {
                           <p>
                             Base price:{" "}
                             <span className="font-medium">
-                              {currentPlayer ? formatAmount(20000) : "-"}
+                              {currentPlayer
+                                ? formatAmount(currentPlayer.basePrice)
+                                : "-"}
                             </span>
                           </p>
                           {currentPlayer?.regularTeam ? (
@@ -479,7 +610,7 @@ function AuctionViewPage() {
                               }
                               onClick={() =>
                                 navigate(
-                                  `/auction/players/${lastCompletedPlayer.id}`,
+                                  `/auction/tournaments/${selectedTournamentId}/players/${lastCompletedPlayer.id}`,
                                 )
                               }
                               onTeamClick={(event) => {
@@ -487,7 +618,9 @@ function AuctionViewPage() {
                                   return;
                                 }
                                 event.stopPropagation();
-                                navigate(`/auction/teams/${team.id}`);
+                                navigate(
+                                  `/auction/tournaments/${selectedTournamentId}/teams/${team.id}`,
+                                );
                               }}
                             />
                           );
@@ -566,13 +699,19 @@ function AuctionViewPage() {
                               ? formatAmount(player.soldPrice)
                               : undefined
                       }
-                      onClick={() => navigate(`/auction/players/${player.id}`)}
+                      onClick={() =>
+                        navigate(
+                          `/auction/tournaments/${selectedTournamentId}/players/${player.id}`,
+                        )
+                      }
                       onTeamClick={(event) => {
                         if (!team || isUnsold) {
                           return;
                         }
                         event.stopPropagation();
-                        navigate(`/auction/teams/${team.id}`);
+                        navigate(
+                          `/auction/tournaments/${selectedTournamentId}/teams/${team.id}`,
+                        );
                       }}
                     />
                   );
@@ -644,7 +783,11 @@ function AuctionViewPage() {
                     role={player.role}
                     imageUrl={player.imageUrl}
                     basePrice={formatAmount(player.basePrice)}
-                    onClick={() => navigate(`/auction/players/${player.id}`)}
+                    onClick={() =>
+                      navigate(
+                        `/auction/tournaments/${selectedTournamentId}/players/${player.id}`,
+                      )
+                    }
                   />
                 ))}
               </div>
@@ -668,7 +811,11 @@ function AuctionViewPage() {
                     remaining={formatAmount(team.remainingPurse)}
                     playersCount={team.playersCount}
                     teamSize={tournament?.teamSize ?? 9}
-                    onClick={() => navigate(`/auction/teams/${team.id}`)}
+                    onClick={() =>
+                      navigate(
+                        `/auction/tournaments/${selectedTournamentId}/teams/${team.id}`,
+                      )
+                    }
                   />
                 ))}
               </div>

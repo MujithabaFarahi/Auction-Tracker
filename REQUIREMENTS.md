@@ -1,7 +1,7 @@
 # Auction Tracker MVP Requirements
 
 ## Purpose
-Build an MVP web app to run and view a **single** live auction for one tournament.
+Run and view live player auctions across multiple tournaments, with one tournament selected for live auction control at a time.
 
 ## Fixed Stack
 - Frontend: React (web)
@@ -10,9 +10,10 @@ Build an MVP web app to run and view a **single** live auction for one tournamen
 - Real-time: Firestore listeners
 
 ## Core Rules
-- One tournament only
+- Store each tournament's teams, players, and auction state independently
+- Use one active tournament for the public live view and admin auction controls
 - Auction tracking only
-- No payments, analytics, chat, notifications
+- No payments, analytics, or chat
 - Captains are view-only (no auth)
 
 ## Roles
@@ -25,20 +26,28 @@ Build an MVP web app to run and view a **single** live auction for one tournamen
 - Read-only auction view
 
 ## Firestore Data Model
-### Tournament (single document)
+### App configuration (`config/app`)
+```
+{
+  activeTournamentId: string | null
+}
+```
+
+### Tournament (`tournaments/{tournamentId}`)
 ```
 tournament {
   name: string
   season: string
   teamPurse: number
   teamSize: number
+  status: "PENDING" | "LIVE" | "COMPLETED"
+  createdAt: number
 }
 ```
 
-### Teams (collection)
+### Teams (`tournaments/{tournamentId}/teams/{teamId}`)
 ```
 teams {
-  id: string
   name: string
   captainName: string
   totalPurse: number
@@ -50,22 +59,22 @@ teams {
 ```
 Rules: remainingPurse must not go below zero.
 
-### Players (collection)
+### Players (`tournaments/{tournamentId}/players/{playerId}`)
 ```
 players {
-  id: string
   name: string
   contactNumber: string
-  area: string
+  area?: string
   role: string
   basePrice: number
-  regularTeam: string
-  createdAt: number
-  status: "AVAILABLE" | "SOLD"
+  regularTeam?: string
+  imageUrl: string | null
+  createdAt?: number
+  status: "AVAILABLE" | "UNSOLD" | "DRAFTED" | "SOLD"
   soldToTeamId: string | null
   soldPrice: number | null
   soldAt: number | null
-  bidHistory: Bid[]
+  bidHistory?: Bid[]
 }
 ```
 Allowed roles:
@@ -80,7 +89,7 @@ Allowed areas:
 - Mangedara
 - Majeedpura
 
-### Auction State (single document)
+### Auction State (`tournaments/{tournamentId}/auctionState/current`)
 ```
 auctionState {
   currentPlayerId: string | null
@@ -104,7 +113,13 @@ Bid {
 ## Functional Requirements
 ### Admin Authentication
 - Email/password login
-- Any authenticated user is admin
+- The admin UI accepts signed-in Firebase users. Enforce write authorization with Firestore rules.
+
+### Tournament Setup
+- Create and select a tournament in Admin Setup
+- Configure the tournament's name, season, team purse, and team size
+- Set a tournament as live to use it in Admin Auction and the public Live view
+- With no live tournament selected, default the public view to the newest tournament and show a selector
 
 ### Team Setup
 - Create teams with name + captain; total purse pulled from tournament
@@ -114,11 +129,13 @@ Bid {
 ### Player Setup
 - Add/edit players before auction
 - Editing allowed even when auction is live
-- Cannot edit once sold
-- Optional assign-to-team at creation (sold at 0 cost)
+- Exclude sold and drafted players from auction selection
+- Optionally draft a player to a team at creation with zero purse impact
 - Admin can delete players
 - Deleting sold players refunds team purse by soldPrice
-- Admin can edit players from player detail view
+- Optional photo link accepts a direct image URL or Google Drive file share URL
+- Show a placeholder for missing or unavailable photos
+- Clicking a photo opens the original link in a new tab
 - Admin can assign team-less players to a team with price 0 (no purse impact)
 - Player list defaults to createdAt ordering
 
@@ -127,9 +144,9 @@ Bid {
 - Start auction
 - Stop/revert live auction to reselect player
 - Enter/update bid amount
-- Set bid difference (2k/5k/10k quick buttons + manual)
-- Bid difference auto-escalates at 40,000 and 100,000
-- Bid difference resets to 2,000 for each new player
+- Set the bid difference with 5,000 and 10,000 quick buttons or a manual amount
+- Enforce a bid difference of 10,000 once the current bid reaches 100,000
+- Reset the bid difference to 5,000 for each new player
 - Bid amount auto-updates with bid difference changes
 - Minimum bid = 20,000 for first bid, then current bid + difference
 - Same team cannot bid twice in a row
@@ -142,7 +159,7 @@ Bid {
 - Bid submission supports local queue with background sync
 
 ### View-Only Auction
-- Current player
+- Current player and photo preview
 - Role + base price
 - Current bid + leading team
 - Team labels include captain name for clarity
@@ -150,6 +167,7 @@ Bid {
 - Team maximum bid amount
 - Sold players list
 - Completed, Players, and Teams use card/tile grid layouts
+- Photos appear on completed and available player cards and player detail pages
 - Player bid history shown newest first
 
 ## Live Bid History (Mandatory)

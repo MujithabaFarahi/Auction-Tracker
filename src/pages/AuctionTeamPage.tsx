@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { onSnapshot, updateDoc } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,11 +24,11 @@ import {
 } from "@/components/ui/table";
 import { formatAmount, formatTeamLabel } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
-import { db } from "@/lib/firebase";
 import {
   assignPlayerToTeamNoPurse,
-  playersCollectionRef,
-  tournamentDocRef,
+  getPlayersCollectionRef,
+  getTeamDocRef,
+  getTournamentDocRef,
   type Player,
   type Team,
   type Tournament,
@@ -37,7 +37,7 @@ import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 function AuctionTeamPage() {
-  const { teamId } = useParams();
+  const { tournamentId, teamId } = useParams();
   const { user } = useAuth();
   const [team, setTeam] = useState<Team | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -59,19 +59,19 @@ function AuctionTeamPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!teamId) {
+    if (!tournamentId || !teamId) {
       return;
     }
-    const teamRef = doc(db, "teams", teamId);
+    const teamRef = getTeamDocRef(tournamentId, teamId);
     const unsubscribe = onSnapshot(teamRef, (snapshot) => {
       if (!snapshot.exists()) {
         setTeam(null);
         return;
       }
-      setTeam({ id: snapshot.id, ...(snapshot.data() as Omit<Team, "id">) });
+      setTeam(snapshot.data());
     });
     return () => unsubscribe();
-  }, [teamId]);
+  }, [teamId, tournamentId]);
 
   useEffect(() => {
     if (!team) {
@@ -86,26 +86,30 @@ function AuctionTeamPage() {
   }, [team]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(playersCollectionRef, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<Player, "id">),
-      }));
-      setPlayers(data);
+    if (!tournamentId) {
+      setPlayers([]);
+      return;
+    }
+    const unsubscribe = onSnapshot(getPlayersCollectionRef(tournamentId), (snapshot) => {
+      setPlayers(snapshot.docs.map((docSnap) => docSnap.data()));
     });
     return () => unsubscribe();
-  }, []);
+  }, [tournamentId]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(tournamentDocRef, (snapshot) => {
+    if (!tournamentId) {
+      setTournament(null);
+      return;
+    }
+    const unsubscribe = onSnapshot(getTournamentDocRef(tournamentId), (snapshot) => {
       if (!snapshot.exists()) {
         setTournament(null);
         return;
       }
-      setTournament(snapshot.data() as Tournament);
+      setTournament(snapshot.data());
     });
     return () => unsubscribe();
-  }, []);
+  }, [tournamentId]);
 
   const teamPlayers = useMemo(() => {
     if (!teamId) {
@@ -128,7 +132,7 @@ function AuctionTeamPage() {
     [availablePlayers, selectedPlayerId],
   );
 
-  if (!teamId) {
+  if (!tournamentId || !teamId) {
     return (
       <div className="flex min-h-svh flex-col">
         <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">
@@ -280,7 +284,11 @@ function AuctionTeamPage() {
                     setAssignError(null);
                     setAssigning(true);
                     try {
-                      await assignPlayerToTeamNoPurse(selectedPlayerId, teamId);
+                      await assignPlayerToTeamNoPurse(
+                        tournamentId,
+                        selectedPlayerId,
+                        teamId,
+                      );
                       setSelectedPlayerId("");
                     } catch (err) {
                       setAssignError(
@@ -337,7 +345,7 @@ function AuctionTeamPage() {
                   }
                   setEditSaving(true);
                   try {
-                    await updateDoc(doc(db, "teams", team.id), {
+                    await updateDoc(getTeamDocRef(tournamentId, team.id), {
                       name: editForm.name.trim(),
                       captainName: editForm.captainName.trim(),
                       spentAmount,
@@ -468,7 +476,7 @@ function AuctionTeamPage() {
                       <TableCell>
                         <Link
                           className="text-sm font-medium capitalize "
-                          to={`/auction/players/${player.id}`}
+                          to={`/auction/tournaments/${tournamentId}/players/${player.id}`}
                         >
                           {player.name}
                         </Link>

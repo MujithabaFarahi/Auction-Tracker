@@ -3,15 +3,22 @@
 ## Admin
 - Firebase Auth email/password login
 - Tournament setup (name + season + team purse + team size)
-- Team setup (name, captain; purse from tournament)
-- Player setup (role, base price, contact, area, regular team)
+- Multi-tournament management with tournament-scoped teams, players, and auction state
+- Create new tournaments from setup without leaving the page
+- Select which tournament is being edited in setup
+- Set a tournament as the live tournament for the public view
+- Clear the live tournament so the public view falls back to tournament selection
+- Team setup per tournament (name, captain; purse from tournament)
+- Player setup per tournament with role, base price, contact, area, regular team, and optional image link
+- Clickable photo thumbnails in Setup and a photo preview for the current player in Auction Control
 - Player setup option to assign player directly to a team (0 cost)
 - Edit players even when auction is live
 - Edit team details (name, captain, spent, remaining)
 - Delete players (sold player deletion refunds team purse)
 - Bulk import players from TSV list
+- Auction control scoped to the currently live tournament
 - Auction control with live bid history
-- Quick bid difference buttons (2k/5k/10k) with auto escalation
+- Quick bid difference buttons for 5,000 and 10,000, with 10,000 enforced from a current bid of 100,000
 - Command palette player selection
 - Prevent same team from bidding twice in a row
 - Delete incorrect bid entries from history
@@ -24,23 +31,30 @@
 - Live bid queue with background sync for faster bidding
 
 ## Public Auction View
+- If a live tournament is set, the viewer opens directly into that tournament
+- If no live tournament is set, the viewer defaults to the latest tournament and shows a selector
 - Live tab: current player + current bid + live bid history
 - Completed tab: card grid of sold players sorted by time or price
 - Players tab: tile grid with search + role filter + name/base/created sort
 - Teams tab: card grid with spent/remaining + player count
-- Team detail page with roster + prices
-- Player detail page with bid history if sold
+- Team detail page with roster + prices, scoped by tournament
+- Player detail page with bid history if sold, scoped by tournament
+- Photo previews in Live, Completed, Players, and player details. A click opens the original link in a new tab.
+- Placeholders for missing or unavailable photos
+- Toasts for new sales and drafted players
 - Team labels shown as "Team (Captain)" for clarity
-- Contact number shown only to admin on player detail
+- Player detail displays the contact number in the signed-in UI
 - Footer credit link (Powered by Teqgrow)
 
 ## Real-Time
-- Firestore listeners for auction state, teams, and players
+- Firestore listeners for tournament-scoped auction state, teams, and players
+- Global config listener for the active public tournament
 
 ## Validation & Rules
 - Starting bid is always 20,000 regardless of base price
 - Bid must be >= current bid + difference when live
 - Same team cannot bid twice in a row (admin enforced)
 - Team purse cannot be exceeded (frontend + transaction)
-- Sold players are immutable
-- Single tournament only
+- Sold or drafted players are excluded from player selection for bidding
+- Player image URLs are optional. Existing player records without an image use the placeholder.
+- A single live tournament is selected at a time

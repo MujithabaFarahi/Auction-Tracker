@@ -1,3 +1,10 @@
+import type {
+  DocumentData,
+  FirestoreDataConverter,
+  QueryDocumentSnapshot,
+  SnapshotOptions,
+  WithFieldValue,
+} from "firebase/firestore";
 import {
   addDoc,
   collection,
@@ -10,18 +17,26 @@ import {
 
 import { db } from "@/lib/firebase";
 
-export const TOURNAMENT_DOC_ID = "current";
-export const AUCTION_STATE_DOC_ID = "current";
+type Entity<TDoc> = TDoc & { id: string };
 
-export type Tournament = {
+export type GlobalConfig = {
+  activeTournamentId: string | null;
+};
+
+export type TournamentStatus = "PENDING" | "LIVE" | "COMPLETED";
+
+export type TournamentDoc = {
   name: string;
   season: string;
   teamPurse: number;
   teamSize: number;
+  status: TournamentStatus;
+  createdAt: number;
 };
 
-export type Team = {
-  id: string;
+export type Tournament = Entity<TournamentDoc>;
+
+export type TeamDoc = {
   name: string;
   captainName: string;
   totalPurse: number;
@@ -30,6 +45,8 @@ export type Team = {
   playersCount: number;
   maxBidAmount: number;
 };
+
+export type Team = Entity<TeamDoc>;
 
 export const PLAYER_ROLES = [
   "Batsman",
@@ -44,15 +61,21 @@ export type PlayerRole = (typeof PLAYER_ROLES)[number];
 
 export type PlayerStatus = "AVAILABLE" | "UNSOLD" | "DRAFTED" | "SOLD";
 
-export type Player = {
-  id: string;
+export type Bid = {
+  teamId: string;
+  teamName: string;
+  amount: number;
+  timestamp: number;
+};
+
+export type PlayerDoc = {
   name: string;
   contactNumber: string;
   area?: string;
   role: PlayerRole;
   basePrice: number;
   regularTeam?: string;
-  imageUrl?: string | null;
+  imageUrl: string | null;
   createdAt?: number;
   status: PlayerStatus;
   soldToTeamId: string | null;
@@ -61,12 +84,7 @@ export type Player = {
   bidHistory?: Bid[];
 };
 
-export type Bid = {
-  teamId: string;
-  teamName: string;
-  amount: number;
-  timestamp: number;
-};
+export type Player = Entity<PlayerDoc>;
 
 export type AuctionStatus = "IDLE" | "LIVE" | "SOLD";
 
@@ -86,66 +104,205 @@ export const defaultAuctionState: AuctionState = {
   bidHistory: [],
 };
 
-export const tournamentDocRef = doc(db, "tournament", TOURNAMENT_DOC_ID);
-export const auctionStateDocRef = doc(db, "auctionState", AUCTION_STATE_DOC_ID);
-export const teamsCollectionRef = collection(db, "teams");
-export const playersCollectionRef = collection(db, "players");
+const defaultGlobalConfig: GlobalConfig = {
+  activeTournamentId: null,
+};
 
-export async function ensureAuctionState() {
-  const snapshot = await getDoc(auctionStateDocRef);
+function createDocConverter<TDoc extends DocumentData>(
+  normalize?: (data: TDoc) => TDoc,
+): FirestoreDataConverter<TDoc> {
+  return {
+    toFirestore: (data: WithFieldValue<TDoc>) =>
+      data as WithFieldValue<DocumentData>,
+    fromFirestore: (
+      snapshot: QueryDocumentSnapshot,
+      options: SnapshotOptions,
+    ): TDoc => {
+      const data = snapshot.data(options) as TDoc;
+      return normalize ? normalize(data) : data;
+    },
+  };
+}
+
+function createEntityConverter<TDoc extends DocumentData>(
+  normalize?: (data: TDoc) => TDoc,
+): FirestoreDataConverter<Entity<TDoc>, TDoc> {
+  return {
+    toFirestore: (data: WithFieldValue<Entity<TDoc>>) => {
+      const { id, ...rest } = data as Entity<TDoc>;
+      void id;
+      return rest as WithFieldValue<TDoc>;
+    },
+    fromFirestore: (
+      snapshot: QueryDocumentSnapshot,
+      options: SnapshotOptions,
+    ): Entity<TDoc> => {
+      const raw = snapshot.data(options) as TDoc;
+      const data = normalize ? normalize(raw) : raw;
+      return {
+        id: snapshot.id,
+        ...data,
+      };
+    },
+  };
+}
+
+function normalizePlayerDoc(data: PlayerDoc): PlayerDoc {
+  return {
+    ...data,
+    imageUrl: data.imageUrl ?? null,
+    bidHistory: Array.isArray(data.bidHistory) ? data.bidHistory : [],
+  };
+}
+
+function normalizeAuctionState(data: AuctionState): AuctionState {
+  return {
+    ...defaultAuctionState,
+    ...data,
+    bidHistory: Array.isArray(data.bidHistory) ? data.bidHistory : [],
+  };
+}
+
+export const configDocRef = doc(db, "config", "app").withConverter(
+  createDocConverter<GlobalConfig>(),
+);
+
+export const tournamentsCollectionRef = collection(db, "tournaments").withConverter(
+  createEntityConverter<TournamentDoc>(),
+);
+
+export const getTournamentDocRef = (tournamentId: string) =>
+  doc(tournamentsCollectionRef, tournamentId);
+
+export const getAuctionStateDocRef = (tournamentId: string) =>
+  doc(db, "tournaments", tournamentId, "auctionState", "current").withConverter(
+    createDocConverter<AuctionState>(normalizeAuctionState),
+  );
+
+export const getTeamsCollectionRef = (tournamentId: string) =>
+  collection(db, "tournaments", tournamentId, "teams").withConverter(
+    createEntityConverter<TeamDoc>(),
+  );
+
+export const getTeamDocRef = (tournamentId: string, teamId: string) =>
+  doc(getTeamsCollectionRef(tournamentId), teamId);
+
+export const getPlayersCollectionRef = (tournamentId: string) =>
+  collection(db, "tournaments", tournamentId, "players").withConverter(
+    createEntityConverter<PlayerDoc>(normalizePlayerDoc),
+  );
+
+export const getPlayerDocRef = (tournamentId: string, playerId: string) =>
+  doc(getPlayersCollectionRef(tournamentId), playerId);
+
+export async function ensureGlobalConfig() {
+  const snapshot = await getDoc(configDocRef);
   if (!snapshot.exists()) {
-    await setDoc(auctionStateDocRef, defaultAuctionState);
+    await setDoc(configDocRef, defaultGlobalConfig);
   }
 }
 
-export async function ensureTournament() {
-  const snapshot = await getDoc(tournamentDocRef);
+export async function ensureAuctionState(tournamentId: string) {
+  const snapshot = await getDoc(getAuctionStateDocRef(tournamentId));
   if (!snapshot.exists()) {
-    await setDoc(tournamentDocRef, {
-      name: "Softball Auction",
-      season: "2025",
-      teamPurse: 0,
-      teamSize: 9,
-    });
+    await setDoc(getAuctionStateDocRef(tournamentId), defaultAuctionState);
   }
+}
+
+export type TournamentInput = Omit<TournamentDoc, "status" | "createdAt"> & {
+  status?: TournamentStatus;
+};
+
+export async function createTournament(input: TournamentInput) {
+  const docRef = await addDoc(tournamentsCollectionRef, {
+    ...input,
+    status: input.status ?? "PENDING",
+    createdAt: Date.now(),
+  } as unknown as WithFieldValue<Tournament>);
+  await ensureAuctionState(docRef.id);
+  return docRef.id;
+}
+
+export async function updateTournament(
+  tournamentId: string,
+  input: TournamentInput,
+) {
+  await setDoc(
+    getTournamentDocRef(tournamentId),
+    {
+      ...input,
+      status: input.status ?? "PENDING",
+    },
+    { merge: true },
+  );
+}
+
+export async function setActiveTournament(tournamentId: string | null) {
+  await runTransaction(db, async (transaction) => {
+    const configSnap = await transaction.get(configDocRef);
+    const currentActiveId =
+      configSnap.exists() ? (configSnap.data().activeTournamentId ?? null) : null;
+
+    transaction.set(
+      configDocRef,
+      { activeTournamentId: tournamentId },
+      { merge: true },
+    );
+
+    if (currentActiveId && currentActiveId !== tournamentId) {
+      transaction.set(
+        getTournamentDocRef(currentActiveId),
+        { status: "PENDING" },
+        { merge: true },
+      );
+    }
+
+    if (tournamentId) {
+      transaction.set(
+        getTournamentDocRef(tournamentId),
+        { status: "LIVE" },
+        { merge: true },
+      );
+    }
+  });
 }
 
 export async function saveTeam(
+  tournamentId: string,
   input: Omit<
-    Team,
-    "id" | "remainingPurse" | "spentAmount" | "playersCount" | "maxBidAmount"
+    TeamDoc,
+    "remainingPurse" | "spentAmount" | "playersCount" | "maxBidAmount"
   >,
 ) {
-  const tournamentSnap = await getDoc(tournamentDocRef);
-  const tournamentData = tournamentSnap.exists()
-    ? (tournamentSnap.data() as Tournament)
-    : null;
+  const tournamentSnap = await getDoc(getTournamentDocRef(tournamentId));
+  const tournamentData = tournamentSnap.exists() ? tournamentSnap.data() : null;
   const teamSize = tournamentData?.teamSize ?? 9;
   const playersCount = 0;
-  const payload = {
+  const payload: TeamDoc = {
     ...input,
     remainingPurse: input.totalPurse,
     spentAmount: 0,
     playersCount,
     maxBidAmount: calculateMaxBid(input.totalPurse, playersCount, teamSize),
   };
-  await addDoc(teamsCollectionRef, payload);
+  await addDoc(
+    getTeamsCollectionRef(tournamentId),
+    payload as unknown as WithFieldValue<Team>,
+  );
 }
 
 export async function updateTeam(
+  tournamentId: string,
   id: string,
   input: Omit<
-    Team,
-    "id" | "remainingPurse" | "spentAmount" | "playersCount" | "maxBidAmount"
+    TeamDoc,
+    "remainingPurse" | "spentAmount" | "playersCount" | "maxBidAmount"
   >,
 ) {
-  const tournamentSnap = await getDoc(tournamentDocRef);
-  const tournamentData = tournamentSnap.exists()
-    ? (tournamentSnap.data() as Tournament)
-    : null;
+  const tournamentSnap = await getDoc(getTournamentDocRef(tournamentId));
+  const tournamentData = tournamentSnap.exists() ? tournamentSnap.data() : null;
   const teamSize = tournamentData?.teamSize ?? 9;
-  const ref = doc(db, "teams", id);
-  await updateDoc(ref, {
+  await updateDoc(getTeamDocRef(tournamentId, id), {
     ...input,
     remainingPurse: input.totalPurse,
     spentAmount: 0,
@@ -168,72 +325,70 @@ export function calculateMaxBid(
 }
 
 export type NewPlayerInput = Omit<
-  Player,
-  "id" | "status" | "soldToTeamId" | "soldPrice" | "soldAt"
+  PlayerDoc,
+  "status" | "soldToTeamId" | "soldPrice" | "soldAt" | "imageUrl"
 > & {
   status?: PlayerStatus;
   soldToTeamId?: string | null;
   soldPrice?: number | null;
   soldAt?: number | null;
+  imageUrl?: string | null;
 };
 
-export async function savePlayer(input: NewPlayerInput) {
+export async function savePlayer(tournamentId: string, input: NewPlayerInput) {
   const {
     status = "AVAILABLE",
     soldToTeamId = null,
     soldPrice = null,
     soldAt = null,
+    imageUrl = null,
     createdAt,
     ...rest
   } = input;
-  await addDoc(playersCollectionRef, {
+  await addDoc(getPlayersCollectionRef(tournamentId), {
     ...rest,
     status,
     soldToTeamId,
     soldPrice,
     soldAt,
+    imageUrl,
     createdAt: createdAt ?? Date.now(),
     bidHistory: [],
-  });
+  } as unknown as WithFieldValue<Player>);
 }
 
 export async function updatePlayer(
+  tournamentId: string,
   id: string,
-  input: Omit<
-    Player,
-    "id" | "status" | "soldToTeamId" | "soldPrice" | "soldAt"
-  >,
+  input: Omit<PlayerDoc, "status" | "soldToTeamId" | "soldPrice" | "soldAt">,
 ) {
-  const ref = doc(db, "players", id);
-  await updateDoc(ref, input);
+  await updateDoc(getPlayerDocRef(tournamentId, id), input);
 }
 
-export async function deletePlayer(playerId: string) {
+export async function deletePlayer(tournamentId: string, playerId: string) {
   await runTransaction(db, async (transaction) => {
-    const playerRef = doc(db, "players", playerId);
+    const playerRef = getPlayerDocRef(tournamentId, playerId);
     const playerSnap = await transaction.get(playerRef);
     if (!playerSnap.exists()) {
       throw new Error("Player not found.");
     }
-    const playerData = playerSnap.data() as Player;
+    const playerData = playerSnap.data();
 
     if (
       (playerData.status === "SOLD" || playerData.status === "DRAFTED") &&
       playerData.soldToTeamId
     ) {
-      const teamRef = doc(db, "teams", playerData.soldToTeamId);
+      const teamRef = getTeamDocRef(tournamentId, playerData.soldToTeamId);
       const teamSnap = await transaction.get(teamRef);
       if (!teamSnap.exists()) {
         throw new Error("Team not found for sold player.");
       }
-      const teamData = teamSnap.data() as Team;
+      const teamData = teamSnap.data();
       const refund = Number(playerData.soldPrice) || 0;
       const spentAmount = Number(teamData.spentAmount) || 0;
       const remainingPurse = Number(teamData.remainingPurse) || 0;
-      const tournamentSnap = await transaction.get(tournamentDocRef);
-      const tournamentData = tournamentSnap.exists()
-        ? (tournamentSnap.data() as Tournament)
-        : null;
+      const tournamentSnap = await transaction.get(getTournamentDocRef(tournamentId));
+      const tournamentData = tournamentSnap.exists() ? tournamentSnap.data() : null;
       const teamSize = tournamentData?.teamSize ?? 9;
       const nextPlayersCount = Math.max(0, (teamData.playersCount ?? 0) - 1);
       const nextRemaining = remainingPurse + refund;
@@ -251,16 +406,17 @@ export async function deletePlayer(playerId: string) {
 }
 
 export async function assignPlayerToTeamNoPurse(
+  tournamentId: string,
   playerId: string,
   teamId: string,
 ) {
   await runTransaction(db, async (transaction) => {
-    const playerRef = doc(db, "players", playerId);
+    const playerRef = getPlayerDocRef(tournamentId, playerId);
     const playerSnap = await transaction.get(playerRef);
     if (!playerSnap.exists()) {
       throw new Error("Player not found.");
     }
-    const playerData = playerSnap.data() as Player;
+    const playerData = playerSnap.data();
     if (
       (playerData.status === "SOLD" || playerData.status === "DRAFTED") &&
       playerData.soldToTeamId
@@ -268,17 +424,15 @@ export async function assignPlayerToTeamNoPurse(
       throw new Error("Player is already assigned to a team.");
     }
 
-    const teamRef = doc(db, "teams", teamId);
+    const teamRef = getTeamDocRef(tournamentId, teamId);
     const teamSnap = await transaction.get(teamRef);
     if (!teamSnap.exists()) {
       throw new Error("Team not found.");
     }
-    const teamData = teamSnap.data() as Team;
+    const teamData = teamSnap.data();
 
-    const tournamentSnap = await transaction.get(tournamentDocRef);
-    const tournamentData = tournamentSnap.exists()
-      ? (tournamentSnap.data() as Tournament)
-      : null;
+    const tournamentSnap = await transaction.get(getTournamentDocRef(tournamentId));
+    const tournamentData = tournamentSnap.exists() ? tournamentSnap.data() : null;
     const teamSize = tournamentData?.teamSize ?? 9;
     const nextPlayersCount = (teamData.playersCount ?? 0) + 1;
 
@@ -300,10 +454,10 @@ export async function assignPlayerToTeamNoPurse(
   });
 }
 
-export async function setCurrentPlayer(playerId: string) {
-  await updateDoc(doc(db, "players", playerId), { bidHistory: [] });
+export async function setCurrentPlayer(tournamentId: string, playerId: string) {
+  await updateDoc(getPlayerDocRef(tournamentId, playerId), { bidHistory: [] });
   await setDoc(
-    auctionStateDocRef,
+    getAuctionStateDocRef(tournamentId),
     {
       currentPlayerId: playerId,
       currentBid: 20000,
@@ -315,9 +469,9 @@ export async function setCurrentPlayer(playerId: string) {
   );
 }
 
-export async function startAuction() {
+export async function startAuction(tournamentId: string) {
   await setDoc(
-    auctionStateDocRef,
+    getAuctionStateDocRef(tournamentId),
     {
       status: "LIVE",
       currentBid: 20000,
@@ -328,9 +482,9 @@ export async function startAuction() {
   );
 }
 
-export async function stopAuction() {
+export async function stopAuction(tournamentId: string) {
   await setDoc(
-    auctionStateDocRef,
+    getAuctionStateDocRef(tournamentId),
     {
       status: "IDLE",
       currentBid: 20000,
@@ -341,34 +495,39 @@ export async function stopAuction() {
   );
 }
 
-export async function placeBid(teamId: string, amount: number) {
+export async function placeBid(
+  tournamentId: string,
+  teamId: string,
+  amount: number,
+) {
   await runTransaction(db, async (transaction) => {
-    const auctionSnap = await transaction.get(auctionStateDocRef);
+    const auctionRef = getAuctionStateDocRef(tournamentId);
+    const auctionSnap = await transaction.get(auctionRef);
     if (!auctionSnap.exists()) {
       throw new Error("Auction state not initialized.");
     }
 
-    const auctionData = auctionSnap.data() as AuctionState;
+    const auctionData = auctionSnap.data();
     if (auctionData.status !== "LIVE" || !auctionData.currentPlayerId) {
       throw new Error("No live auction to place a bid.");
     }
 
-    const playerRef = doc(db, "players", auctionData.currentPlayerId);
+    const playerRef = getPlayerDocRef(tournamentId, auctionData.currentPlayerId);
     const playerSnap = await transaction.get(playerRef);
     if (!playerSnap.exists()) {
       throw new Error("Selected player not found.");
     }
-    const playerData = playerSnap.data() as Player;
+    const playerData = playerSnap.data();
     if (playerData.status === "SOLD" || playerData.status === "DRAFTED") {
       throw new Error("Player is already sold.");
     }
 
-    const teamRef = doc(db, "teams", teamId);
+    const teamRef = getTeamDocRef(tournamentId, teamId);
     const teamSnap = await transaction.get(teamRef);
     if (!teamSnap.exists()) {
       throw new Error("Team not found.");
     }
-    const teamData = teamSnap.data() as Team;
+    const teamData = teamSnap.data();
 
     const currentBid = Number(auctionData.currentBid) || 0;
     const hasBids = Array.isArray(auctionData.bidHistory)
@@ -398,7 +557,7 @@ export async function placeBid(teamId: string, amount: number) {
       timestamp: Date.now(),
     };
 
-    transaction.update(auctionStateDocRef, {
+    transaction.update(auctionRef, {
       currentBid: amount,
       leadingTeamId: teamId,
       bidHistory: [...bidHistory, bid],
@@ -409,14 +568,19 @@ export async function placeBid(teamId: string, amount: number) {
   });
 }
 
-export async function updateLiveBid(teamId: string, amount: number) {
-  await updateDoc(auctionStateDocRef, {
+export async function updateLiveBid(
+  tournamentId: string,
+  teamId: string,
+  amount: number,
+) {
+  await updateDoc(getAuctionStateDocRef(tournamentId), {
     currentBid: amount,
     leadingTeamId: teamId,
   });
 }
 
 export async function commitPendingBids(
+  tournamentId: string,
   playerId: string,
   bids: Bid[],
 ) {
@@ -424,21 +588,22 @@ export async function commitPendingBids(
     return;
   }
   await runTransaction(db, async (transaction) => {
-    const auctionSnap = await transaction.get(auctionStateDocRef);
+    const auctionRef = getAuctionStateDocRef(tournamentId);
+    const auctionSnap = await transaction.get(auctionRef);
     if (!auctionSnap.exists()) {
       throw new Error("Auction state not initialized.");
     }
-    const auctionData = auctionSnap.data() as AuctionState;
+    const auctionData = auctionSnap.data();
     if (auctionData.currentPlayerId !== playerId) {
       throw new Error("Active player changed before bids were committed.");
     }
 
-    const playerRef = doc(db, "players", playerId);
+    const playerRef = getPlayerDocRef(tournamentId, playerId);
     const playerSnap = await transaction.get(playerRef);
     if (!playerSnap.exists()) {
       throw new Error("Selected player not found.");
     }
-    const playerData = playerSnap.data() as Player;
+    const playerData = playerSnap.data();
 
     const bidHistory = Array.isArray(auctionData.bidHistory)
       ? auctionData.bidHistory
@@ -449,7 +614,7 @@ export async function commitPendingBids(
 
     const latestBid = bids[bids.length - 1];
 
-    transaction.update(auctionStateDocRef, {
+    transaction.update(auctionRef, {
       bidHistory: [...bidHistory, ...bids],
       currentBid: latestBid.amount,
       leadingTeamId: latestBid.teamId,
@@ -460,13 +625,14 @@ export async function commitPendingBids(
   });
 }
 
-export async function markPlayerSold() {
+export async function markPlayerSold(tournamentId: string) {
   await runTransaction(db, async (transaction) => {
-    const auctionSnap = await transaction.get(auctionStateDocRef);
+    const auctionRef = getAuctionStateDocRef(tournamentId);
+    const auctionSnap = await transaction.get(auctionRef);
     if (!auctionSnap.exists()) {
       throw new Error("Auction state not initialized.");
     }
-    const auctionData = auctionSnap.data() as AuctionState;
+    const auctionData = auctionSnap.data();
     if (auctionData.status !== "LIVE" || !auctionData.currentPlayerId) {
       throw new Error("No live auction to close.");
     }
@@ -479,31 +645,29 @@ export async function markPlayerSold() {
     }
 
     const winningBid = bidHistory[bidHistory.length - 1];
-    const playerRef = doc(db, "players", auctionData.currentPlayerId);
+    const playerRef = getPlayerDocRef(tournamentId, auctionData.currentPlayerId);
     const playerSnap = await transaction.get(playerRef);
     if (!playerSnap.exists()) {
       throw new Error("Selected player not found.");
     }
-    const playerData = playerSnap.data() as Player;
+    const playerData = playerSnap.data();
     if (playerData.status === "SOLD" || playerData.status === "DRAFTED") {
       throw new Error("Player already sold.");
     }
 
-    const teamRef = doc(db, "teams", winningBid.teamId);
+    const teamRef = getTeamDocRef(tournamentId, winningBid.teamId);
     const teamSnap = await transaction.get(teamRef);
     if (!teamSnap.exists()) {
       throw new Error("Winning team not found.");
     }
-    const teamData = teamSnap.data() as Team;
+    const teamData = teamSnap.data();
     const spentAmount = Number(teamData.spentAmount) || 0;
     if (teamData.remainingPurse < winningBid.amount) {
       throw new Error("Winning team purse is insufficient.");
     }
 
-    const tournamentSnap = await transaction.get(tournamentDocRef);
-    const tournamentData = tournamentSnap.exists()
-      ? (tournamentSnap.data() as Tournament)
-      : null;
+    const tournamentSnap = await transaction.get(getTournamentDocRef(tournamentId));
+    const tournamentData = tournamentSnap.exists() ? tournamentSnap.data() : null;
     const teamSize = tournamentData?.teamSize ?? 9;
     const nextRemaining = teamData.remainingPurse - winningBid.amount;
     const nextPlayersCount = (teamData.playersCount ?? 0) + 1;
@@ -522,7 +686,7 @@ export async function markPlayerSold() {
       soldAt: Date.now(),
     });
 
-    transaction.update(auctionStateDocRef, {
+    transaction.update(auctionRef, {
       currentPlayerId: null,
       currentBid: 0,
       leadingTeamId: null,
@@ -532,23 +696,24 @@ export async function markPlayerSold() {
   });
 }
 
-export async function markPlayerUnsold() {
+export async function markPlayerUnsold(tournamentId: string) {
   await runTransaction(db, async (transaction) => {
-    const auctionSnap = await transaction.get(auctionStateDocRef);
+    const auctionRef = getAuctionStateDocRef(tournamentId);
+    const auctionSnap = await transaction.get(auctionRef);
     if (!auctionSnap.exists()) {
       throw new Error("Auction state not initialized.");
     }
-    const auctionData = auctionSnap.data() as AuctionState;
+    const auctionData = auctionSnap.data();
     if (auctionData.status !== "LIVE" || !auctionData.currentPlayerId) {
       throw new Error("No live auction to close.");
     }
 
-    const playerRef = doc(db, "players", auctionData.currentPlayerId);
+    const playerRef = getPlayerDocRef(tournamentId, auctionData.currentPlayerId);
     const playerSnap = await transaction.get(playerRef);
     if (!playerSnap.exists()) {
       throw new Error("Selected player not found.");
     }
-    const playerData = playerSnap.data() as Player;
+    const playerData = playerSnap.data();
     if (playerData.status === "SOLD" || playerData.status === "DRAFTED") {
       throw new Error("Player already sold.");
     }
@@ -561,7 +726,7 @@ export async function markPlayerUnsold() {
       bidHistory: [],
     });
 
-    transaction.update(auctionStateDocRef, {
+    transaction.update(auctionRef, {
       currentPlayerId: null,
       currentBid: 0,
       leadingTeamId: null,
@@ -571,23 +736,24 @@ export async function markPlayerUnsold() {
   });
 }
 
-export async function deleteBidAtIndex(index: number) {
+export async function deleteBidAtIndex(tournamentId: string, index: number) {
   await runTransaction(db, async (transaction) => {
-    const auctionSnap = await transaction.get(auctionStateDocRef);
+    const auctionRef = getAuctionStateDocRef(tournamentId);
+    const auctionSnap = await transaction.get(auctionRef);
     if (!auctionSnap.exists()) {
       throw new Error("Auction state not initialized.");
     }
-    const auctionData = auctionSnap.data() as AuctionState;
+    const auctionData = auctionSnap.data();
     if (!auctionData.currentPlayerId) {
       throw new Error("No active player to update.");
     }
 
-    const playerRef = doc(db, "players", auctionData.currentPlayerId);
+    const playerRef = getPlayerDocRef(tournamentId, auctionData.currentPlayerId);
     const playerSnap = await transaction.get(playerRef);
     if (!playerSnap.exists()) {
       throw new Error("Selected player not found.");
     }
-    const playerData = playerSnap.data() as Player;
+    const playerData = playerSnap.data();
 
     const bids = Array.isArray(auctionData.bidHistory)
       ? auctionData.bidHistory
@@ -628,7 +794,7 @@ export async function deleteBidAtIndex(index: number) {
     transaction.update(playerRef, {
       bidHistory: updatedPlayerBids,
     });
-    transaction.update(auctionStateDocRef, {
+    transaction.update(auctionRef, {
       bidHistory: updatedBids,
       currentBid: latestBid ? latestBid.amount : 0,
       leadingTeamId: latestBid ? latestBid.teamId : null,

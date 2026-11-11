@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Added
+- Create and manage multiple tournaments, each with its own teams, players, and auction state.
+- Choose which tournament the admin auction controls and public live view use.
+- Add optional player photo URLs, including Google Drive file share links. Photos open the original link in a new tab, and missing or unavailable photos show a placeholder.
+- Public toasts announce newly sold and drafted players.
 - Firebase Auth email/password admin login flow.
 - Firestore schema + transactions for auction state, bids, teams, and players.
 - Admin pages for setup and auction control.
@@ -38,12 +42,13 @@ All notable changes to this project will be documented in this file.
 - Teqgrow credit footer on public player/team/live views.
 
 ### Changed
+- Player and team detail URLs now include the tournament ID.
+- Firestore reads and writes now use tournament-scoped paths. See the [Firebase deployment notes](README.md#firebase-deployment) before upgrading an existing database.
 - Public view reorganized into tabbed layout with sorting and filtering.
 - Admin team setup uses tournament purse instead of per-team input.
 - Team views display spent amount from stored field.
-- Bid difference now resets per player, minimum 1000, and rounds to 1000s.
 - Base auction opening bid is now 20,000 for every player.
-- Bid differences are now 2,000 / 5,000 / 10,000 with auto‑escalation by price.
+- Bid difference starts at 5,000 for each player. The auction enforces 10,000 once the current bid reaches 100,000.
 - Admin can edit players even when auction is live.
 - Auction tables updated with improved headers, alignment, and hover styling.
 - Public Completed tab switched to card grid layout.

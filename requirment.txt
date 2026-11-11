@@ -1,5 +1,7 @@
 Auction Tracker Platform – MVP Build Requirements (Codex Instructions)
 
+This is the original single-tournament brief. See REQUIREMENTS.md for the current multi-tournament app and Firestore schema.
+
 1. Purpose
 
 Build a Minimum Viable Product (MVP) web application to track a live cricket player auction.

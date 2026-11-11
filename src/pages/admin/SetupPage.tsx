@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { doc, onSnapshot, setDoc, writeBatch } from "firebase/firestore";
+import { onSnapshot, writeBatch } from "firebase/firestore";
 
 import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { Button } from "@/components/ui/button";
@@ -24,16 +24,22 @@ import {
 import { formatAmount, formatTeamLabel } from "@/lib/format";
 import {
   PLAYER_ROLES,
-  auctionStateDocRef,
-  ensureAuctionState,
-  ensureTournament,
+  configDocRef,
+  createTournament,
   deletePlayer,
-  playersCollectionRef,
+  ensureAuctionState,
+  ensureGlobalConfig,
+  getAuctionStateDocRef,
+  getPlayersCollectionRef,
+  getTeamDocRef,
+  getTeamsCollectionRef,
+  getTournamentDocRef,
   savePlayer,
   saveTeam,
-  teamsCollectionRef,
-  tournamentDocRef,
+  setActiveTournament,
+  tournamentsCollectionRef,
   updatePlayer,
+  updateTournament,
   type AuctionState,
   type Player,
   type PlayerRole,
@@ -108,6 +114,14 @@ const emptyTournamentForm: TournamentFormState = {
 };
 
 function SetupPage() {
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [isCreatingTournament, setIsCreatingTournament] = useState(false);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<
+    string | null
+  >(null);
+  const [activeTournamentId, setActiveTournamentId] = useState<string | null>(
+    null,
+  );
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
@@ -125,72 +139,135 @@ function SetupPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    void ensureAuctionState();
-    void ensureTournament();
+    void ensureGlobalConfig();
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(teamsCollectionRef, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<Team, "id">),
-      }));
-      setTeams(data);
+    const unsubscribe = onSnapshot(configDocRef, (snapshot) => {
+      const data = snapshot.exists() ? snapshot.data() : null;
+      setActiveTournamentId(data?.activeTournamentId ?? null);
     });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(playersCollectionRef, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<Player, "id">),
-      }));
-      setPlayers(data);
+    const unsubscribe = onSnapshot(tournamentsCollectionRef, (snapshot) => {
+      const data = snapshot.docs
+        .map((docSnap) => docSnap.data())
+        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+      setTournaments(data);
     });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(auctionStateDocRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setAuctionState(null);
-        return;
-      }
-      setAuctionState(snapshot.data() as AuctionState);
-    });
-    return () => unsubscribe();
-  }, []);
+    if (isCreatingTournament) {
+      return;
+    }
+    if (
+      selectedTournamentId &&
+      tournaments.some((item) => item.id === selectedTournamentId)
+    ) {
+      return;
+    }
+    setSelectedTournamentId(activeTournamentId ?? tournaments[0]?.id ?? null);
+  }, [activeTournamentId, isCreatingTournament, selectedTournamentId, tournaments]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(tournamentDocRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setTournament(null);
-        return;
-      }
-      const data = snapshot.data() as Tournament;
-      setTournament(data);
-      setTournamentForm({
-        name: data.name ?? "",
-        season: data.season ?? "",
-        teamPurse:
-          typeof data.teamPurse === "number" ? String(data.teamPurse) : "",
-        teamSize:
-          typeof data.teamSize === "number" ? String(data.teamSize) : "9",
-      });
-    });
-    return () => unsubscribe();
-  }, []);
+    if (!selectedTournamentId) {
+      setTournament(null);
+      setTeams([]);
+      setPlayers([]);
+      setAuctionState(null);
+      setTournamentForm(emptyTournamentForm);
+      return;
+    }
+
+    void ensureAuctionState(selectedTournamentId);
+
+    const tournamentUnsubscribe = onSnapshot(
+      getTournamentDocRef(selectedTournamentId),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setTournament(null);
+          setTournamentForm(emptyTournamentForm);
+          return;
+        }
+        const data = snapshot.data();
+        setTournament(data);
+        setIsCreatingTournament(false);
+        setTournamentForm({
+          name: data.name ?? "",
+          season: data.season ?? "",
+          teamPurse:
+            typeof data.teamPurse === "number" ? String(data.teamPurse) : "",
+          teamSize:
+            typeof data.teamSize === "number" ? String(data.teamSize) : "9",
+        });
+      },
+    );
+
+    const teamsUnsubscribe = onSnapshot(
+      getTeamsCollectionRef(selectedTournamentId),
+      (snapshot) => {
+        setTeams(snapshot.docs.map((docSnap) => docSnap.data()));
+      },
+    );
+
+    const playersUnsubscribe = onSnapshot(
+      getPlayersCollectionRef(selectedTournamentId),
+      (snapshot) => {
+        setPlayers(snapshot.docs.map((docSnap) => docSnap.data()));
+      },
+    );
+
+    const auctionUnsubscribe = onSnapshot(
+      getAuctionStateDocRef(selectedTournamentId),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setAuctionState(null);
+          return;
+        }
+        setAuctionState(snapshot.data());
+      },
+    );
+
+    return () => {
+      tournamentUnsubscribe();
+      teamsUnsubscribe();
+      playersUnsubscribe();
+      auctionUnsubscribe();
+    };
+  }, [selectedTournamentId]);
 
   const auctionLive = auctionState?.status === "LIVE";
+  const activeTournament = useMemo(
+    () =>
+      tournaments.find((item) => item.id === activeTournamentId) ??
+      (tournament?.id === activeTournamentId ? tournament : null),
+    [activeTournamentId, tournament, tournaments],
+  );
 
   const canEditPlayer = () => true;
   const canDeletePlayer = (player: Player) =>
     auctionState?.currentPlayerId !== player.id;
 
+  const requireSelectedTournament = () => {
+    if (!selectedTournamentId) {
+      setError("Create or select a tournament first.");
+      return null;
+    }
+    return selectedTournamentId;
+  };
+
   const handleTeamSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+
+    const tournamentId = requireSelectedTournament();
+    if (!tournamentId) {
+      return;
+    }
 
     const totalPurse = Number(tournament?.teamPurse ?? 0);
     if (!teamForm.name || !teamForm.captainName || totalPurse <= 0) {
@@ -200,7 +277,7 @@ function SetupPage() {
 
     setSaving(true);
     try {
-      await saveTeam({
+      await saveTeam(tournamentId, {
         name: teamForm.name,
         captainName: teamForm.captainName,
         totalPurse,
@@ -214,6 +291,10 @@ function SetupPage() {
   };
 
   const handleResetTeams = async () => {
+    const tournamentId = requireSelectedTournament();
+    if (!tournamentId) {
+      return;
+    }
     if (teams.length === 0) {
       setError("No teams to reset.");
       return;
@@ -229,8 +310,7 @@ function SetupPage() {
     try {
       const batch = writeBatch(db);
       teams.forEach((team) => {
-        const ref = doc(db, "teams", team.id);
-        batch.update(ref, {
+        batch.update(getTeamDocRef(tournamentId, team.id), {
           totalPurse: 500000,
           remainingPurse: 500000,
           spentAmount: 0,
@@ -252,6 +332,11 @@ function SetupPage() {
     event.preventDefault();
     setError(null);
 
+    const tournamentId = requireSelectedTournament();
+    if (!tournamentId) {
+      return;
+    }
+
     const basePrice = Number(playerForm.basePrice || 0);
     if (!playerForm.name || Number.isNaN(basePrice) || basePrice < 0) {
       setError("Player name is required and base price must be 0 or more.");
@@ -270,8 +355,11 @@ function SetupPage() {
 
     setSaving(true);
     try {
+      const existingPlayer = editingPlayerId
+        ? players.find((player) => player.id === editingPlayerId) ?? null
+        : null;
       if (editingPlayerId) {
-        await updatePlayer(editingPlayerId, {
+        await updatePlayer(tournamentId, editingPlayerId, {
           name: playerForm.name,
           contactNumber: playerForm.contactNumber,
           area: playerForm.area,
@@ -279,23 +367,25 @@ function SetupPage() {
           basePrice,
           regularTeam: playerForm.regularTeam,
           imageUrl,
+          createdAt: existingPlayer?.createdAt ?? Date.now(),
+          bidHistory: existingPlayer?.bidHistory ?? [],
         });
       } else {
         const assignedToTeam = playerForm.assignToTeam
           ? playerForm.teamId
           : null;
-        await savePlayer({
+        await savePlayer(tournamentId, {
           name: playerForm.name,
           contactNumber: playerForm.contactNumber,
           area: playerForm.area,
           role: playerForm.role,
           basePrice,
           regularTeam: playerForm.regularTeam,
-          imageUrl,
           status: assignedToTeam ? "DRAFTED" : "AVAILABLE",
           soldToTeamId: assignedToTeam,
           soldPrice: assignedToTeam ? 0 : null,
           soldAt: assignedToTeam ? Date.now() : null,
+          imageUrl,
         });
       }
       setPlayerForm(emptyPlayerForm);
@@ -308,6 +398,10 @@ function SetupPage() {
   };
 
   const handleDeletePlayer = async (player: Player) => {
+    const tournamentId = requireSelectedTournament();
+    if (!tournamentId) {
+      return;
+    }
     const confirmation = window.confirm(
       `Delete ${player.name}?${player.status === "SOLD" ? " This will refund the team purse." : ""}`,
     );
@@ -317,7 +411,7 @@ function SetupPage() {
     setSaving(true);
     setError(null);
     try {
-      await deletePlayer(player.id);
+      await deletePlayer(tournamentId, player.id);
       if (editingPlayerId === player.id) {
         setEditingPlayerId(null);
         setPlayerForm(emptyPlayerForm);
@@ -346,16 +440,25 @@ function SetupPage() {
     }
     setSaving(true);
     try {
-      await setDoc(
-        tournamentDocRef,
-        {
-          name: tournamentForm.name.trim() || "Softball Auction",
-          season: tournamentForm.season.trim() || "2025",
-          teamPurse,
-          teamSize,
-        },
-        { merge: true },
-      );
+      const payload = {
+        name: tournamentForm.name.trim() || "Softball Auction",
+        season: tournamentForm.season.trim() || "2025",
+        teamPurse,
+        teamSize,
+        status:
+          selectedTournamentId && activeTournamentId === selectedTournamentId
+            ? "LIVE"
+            : tournament?.status ?? "PENDING",
+      } as const;
+
+      if (selectedTournamentId) {
+        await updateTournament(selectedTournamentId, payload);
+        setIsCreatingTournament(false);
+      } else {
+        const nextTournamentId = await createTournament(payload);
+        setIsCreatingTournament(false);
+        setSelectedTournamentId(nextTournamentId);
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Unable to save tournament.",
@@ -367,7 +470,7 @@ function SetupPage() {
 
   const tournamentSummary = useMemo(() => {
     if (!tournament) {
-      return "Tournament info will appear once saved.";
+      return "Create a tournament to start adding teams and players.";
     }
     return `${tournament.name} · ${tournament.season} · ${formatAmount(
       tournament.teamPurse ?? 0,
@@ -417,6 +520,10 @@ function SetupPage() {
   };
 
   const handleImportPlayers = async () => {
+    const tournamentId = requireSelectedTournament();
+    if (!tournamentId) {
+      return;
+    }
     setError(null);
     setImportStatus(null);
 
@@ -458,7 +565,7 @@ function SetupPage() {
           continue;
         }
 
-        await savePlayer({
+        await savePlayer(tournamentId, {
           name: row.name,
           contactNumber: row.contactNumber,
           area: normalizeArea(row.area),
@@ -469,6 +576,7 @@ function SetupPage() {
           soldToTeamId: null,
           soldPrice: null,
           soldAt: null,
+          imageUrl: null,
         });
         imported += 1;
       }
@@ -489,6 +597,53 @@ function SetupPage() {
     }
   };
 
+  const handleStartNewTournament = () => {
+    setIsCreatingTournament(true);
+    setSelectedTournamentId(null);
+    setTournament(null);
+    setAuctionState(null);
+    setTeams([]);
+    setPlayers([]);
+    setEditingPlayerId(null);
+    setTeamForm(emptyTeamForm);
+    setPlayerForm(emptyPlayerForm);
+    setTournamentForm(emptyTournamentForm);
+    setError(null);
+    setImportStatus(null);
+  };
+
+  const handleSetLiveTournament = async () => {
+    const tournamentId = requireSelectedTournament();
+    if (!tournamentId) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await setActiveTournament(tournamentId);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to set live tournament.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClearLiveTournament = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await setActiveTournament(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to clear live tournament.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -497,6 +652,91 @@ function SetupPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleTournamentSubmit}>
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+              <div className="space-y-2">
+                <Label htmlFor="tournament-select">Selected tournament</Label>
+                <Select
+                  value={
+                    isCreatingTournament
+                      ? "__new__"
+                      : (selectedTournamentId ?? "__new__")
+                  }
+                  onValueChange={(value) => {
+                    if (value === "__new__") {
+                      handleStartNewTournament();
+                      return;
+                    }
+                    setIsCreatingTournament(false);
+                    setSelectedTournamentId(value);
+                    setTournament(null);
+                    setTournamentForm(emptyTournamentForm);
+                    setAuctionState(null);
+                    setTeams([]);
+                    setPlayers([]);
+                    setEditingPlayerId(null);
+                    setTeamForm(emptyTeamForm);
+                    setPlayerForm(emptyPlayerForm);
+                    setError(null);
+                    setImportStatus(null);
+                  }}
+                  disabled={saving}
+                >
+                  <SelectTrigger id="tournament-select">
+                    <SelectValue placeholder="Create a new tournament" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__new__">Create new tournament</SelectItem>
+                    {tournaments.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name} · {item.season}
+                        {item.id === activeTournamentId ? " · Live" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleStartNewTournament}
+                  disabled={saving}
+                >
+                  New tournament
+                </Button>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSetLiveTournament}
+                  disabled={
+                    saving ||
+                    !selectedTournamentId ||
+                    selectedTournamentId === activeTournamentId
+                  }
+                >
+                  {selectedTournamentId === activeTournamentId
+                    ? "Live tournament"
+                    : "Set as live"}
+                </Button>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleClearLiveTournament}
+                  disabled={saving || !activeTournamentId}
+                >
+                  Clear live
+                </Button>
+              </div>
+            </div>
+            <div className="mt-3 text-sm text-muted-foreground">
+              {activeTournament
+                ? `Viewer page is currently using ${activeTournament.name} · ${activeTournament.season}.`
+                : "No live tournament selected. The viewer page will show tournament selection."}
+            </div>
             <div className="grid gap-4 md:grid-cols-4">
               <div className="space-y-2">
                 <Label htmlFor="tournament-name">Name</Label>
@@ -560,8 +800,12 @@ function SetupPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 mt-4">
-              <Button type="submit" disabled={saving} isLoading={saving}>
-                Save tournament
+              <Button
+                type="submit"
+                disabled={saving || Boolean(selectedTournamentId && tournament?.id !== selectedTournamentId)}
+                isLoading={saving}
+              >
+                {isCreatingTournament ? "Create tournament" : "Save tournament"}
               </Button>
               <span className="text-sm text-muted-foreground">
                 {tournamentSummary}
@@ -615,7 +859,7 @@ function SetupPage() {
               <div className="flex items-center gap-2">
                 <Button
                   type="submit"
-                  disabled={saving || auctionLive}
+                  disabled={saving || auctionLive || !selectedTournamentId}
                   isLoading={saving}
                 >
                   Add team
@@ -644,7 +888,14 @@ function SetupPage() {
                   teams.map((team) => (
                     <TableRow
                       key={team.id}
-                      onClick={() => navigate(`/auction/teams/${team.id}`)}
+                      onClick={() => {
+                        if (!selectedTournamentId) {
+                          return;
+                        }
+                        navigate(
+                          `/auction/tournaments/${selectedTournamentId}/teams/${team.id}`,
+                        );
+                      }}
                       className="cursor-pointer"
                     >
                       <TableCell>{formatTeamLabel(team, true)}</TableCell>
@@ -680,7 +931,7 @@ function SetupPage() {
                 type="button"
                 variant="outline"
                 onClick={handleImportPlayers}
-                disabled={saving}
+                disabled={saving || !selectedTournamentId}
                 isLoading={saving}
               >
                 Load players from list

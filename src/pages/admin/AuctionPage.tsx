@@ -31,18 +31,20 @@ import { LiveInfoCard } from "@/components/auction/LiveInfoCard";
 import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { TeamCard } from "@/components/auction/TeamCard";
 import {
-  auctionStateDocRef,
+  commitPendingBids,
+  configDocRef,
   deleteBidAtIndex,
   ensureAuctionState,
-  commitPendingBids,
+  ensureGlobalConfig,
+  getAuctionStateDocRef,
+  getPlayersCollectionRef,
+  getTeamsCollectionRef,
+  getTournamentDocRef,
   markPlayerSold,
   markPlayerUnsold,
-  playersCollectionRef,
   setCurrentPlayer,
   startAuction,
   stopAuction,
-  teamsCollectionRef,
-  tournamentDocRef,
   updateLiveBid,
   type AuctionState,
   type Bid,
@@ -50,9 +52,12 @@ import {
   type Team,
   type Tournament,
 } from "@/lib/firestore";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 function AuctionPage() {
+  const [activeTournamentId, setActiveTournamentId] = useState<string | null>(
+    null,
+  );
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
@@ -74,52 +79,79 @@ function AuctionPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    void ensureAuctionState();
+    void ensureGlobalConfig();
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(teamsCollectionRef, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<Team, "id">),
-      }));
-      setTeams(data);
+    const unsubscribe = onSnapshot(configDocRef, (snapshot) => {
+      const data = snapshot.exists() ? snapshot.data() : null;
+      setActiveTournamentId(data?.activeTournamentId ?? null);
     });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(playersCollectionRef, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<Player, "id">),
-      }));
-      setPlayers(data);
-    });
-    return () => unsubscribe();
-  }, []);
+    if (!activeTournamentId) {
+      setTournament(null);
+      setTeams([]);
+      setPlayers([]);
+      setAuctionState(null);
+      return;
+    }
 
-  useEffect(() => {
-    const unsubscribe = onSnapshot(auctionStateDocRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setAuctionState(null);
-        return;
-      }
-      setAuctionState(snapshot.data() as AuctionState);
-    });
-    return () => unsubscribe();
-  }, []);
+    void ensureAuctionState(activeTournamentId);
 
-  useEffect(() => {
-    const unsubscribe = onSnapshot(tournamentDocRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setTournament(null);
-        return;
-      }
-      setTournament(snapshot.data() as Tournament);
-    });
-    return () => unsubscribe();
-  }, []);
+    const teamsUnsubscribe = onSnapshot(
+      getTeamsCollectionRef(activeTournamentId),
+      (snapshot) => {
+        setTeams(snapshot.docs.map((docSnap) => docSnap.data()));
+      },
+    );
+
+    const playersUnsubscribe = onSnapshot(
+      getPlayersCollectionRef(activeTournamentId),
+      (snapshot) => {
+        setPlayers(snapshot.docs.map((docSnap) => docSnap.data()));
+      },
+    );
+
+    const auctionUnsubscribe = onSnapshot(
+      getAuctionStateDocRef(activeTournamentId),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setAuctionState(null);
+          return;
+        }
+        setAuctionState(snapshot.data());
+      },
+    );
+
+    const tournamentUnsubscribe = onSnapshot(
+      getTournamentDocRef(activeTournamentId),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setTournament(null);
+          return;
+        }
+        setTournament(snapshot.data());
+      },
+    );
+
+    return () => {
+      teamsUnsubscribe();
+      playersUnsubscribe();
+      auctionUnsubscribe();
+      tournamentUnsubscribe();
+    };
+  }, [activeTournamentId]);
+
+  const requireActiveTournament = () => {
+    if (!activeTournamentId) {
+      setStatusMessage("Select a live tournament in setup first.");
+      return null;
+    }
+    return activeTournamentId;
+  };
 
   const availablePlayers = useMemo(
     () =>
@@ -269,6 +301,10 @@ function AuctionPage() {
   }, [auctionLive, bidAmount, minBid]);
 
   const handleSelectPlayer = async (playerId: string) => {
+    const tournamentId = requireActiveTournament();
+    if (!tournamentId) {
+      return;
+    }
     if (!playerId) {
       setStatusMessage("Select a player to start the auction.");
       return;
@@ -280,7 +316,7 @@ function AuctionPage() {
     setSubmitting(true);
     setStatusMessage(null);
     try {
-      await setCurrentPlayer(playerId);
+      await setCurrentPlayer(tournamentId, playerId);
       setSelectedPlayerId(playerId);
     } catch (err) {
       setStatusMessage(
@@ -312,6 +348,10 @@ function AuctionPage() {
   };
 
   const handleStartAuction = async () => {
+    const tournamentId = requireActiveTournament();
+    if (!tournamentId) {
+      return;
+    }
     if (!auctionState?.currentPlayerId) {
       setStatusMessage("Select a player before starting the auction.");
       return;
@@ -319,7 +359,7 @@ function AuctionPage() {
     setSubmitting(true);
     setStatusMessage(null);
     try {
-      await startAuction();
+      await startAuction(tournamentId);
     } catch (err) {
       setStatusMessage(
         err instanceof Error ? err.message : "Unable to start auction.",
@@ -330,10 +370,14 @@ function AuctionPage() {
   };
 
   const handleStopAuction = async () => {
+    const tournamentId = requireActiveTournament();
+    if (!tournamentId) {
+      return;
+    }
     setSubmitting(true);
     setStatusMessage(null);
     try {
-      await stopAuction();
+      await stopAuction(tournamentId);
       setPendingBids([]);
       pendingBidsRef.current = [];
       pendingPlayerIdRef.current = null;
@@ -351,6 +395,10 @@ function AuctionPage() {
   };
 
   const flushPendingBids = async () => {
+    const tournamentId = requireActiveTournament();
+    if (!tournamentId) {
+      return false;
+    }
     const bidsToCommit = pendingBidsRef.current;
     if (!bidsToCommit.length) {
       return true;
@@ -370,7 +418,7 @@ function AuctionPage() {
     setSyncingBids(true);
     setStatusMessage(null);
     try {
-      await commitPendingBids(playerId, bidsToCommit);
+      await commitPendingBids(tournamentId, playerId, bidsToCommit);
       pendingBidsRef.current = [];
       setPendingBids([]);
       pendingPlayerIdRef.current = null;
@@ -395,6 +443,10 @@ function AuctionPage() {
   };
 
   const placeBidForTeam = (teamId: string) => {
+    const tournamentId = requireActiveTournament();
+    if (!tournamentId) {
+      return;
+    }
     setStatusMessage(null);
     if (!auctionState?.currentPlayerId) {
       setStatusMessage("Select a player before placing a bid.");
@@ -450,7 +502,7 @@ function AuctionPage() {
     } else {
       scheduleFlush();
     }
-    void updateLiveBid(teamId, amount).catch((err) => {
+    void updateLiveBid(tournamentId, teamId, amount).catch((err) => {
       setStatusMessage(
         err instanceof Error ? err.message : "Unable to update live bid.",
       );
@@ -458,6 +510,10 @@ function AuctionPage() {
   };
 
   const handleMarkSold = async () => {
+    const tournamentId = requireActiveTournament();
+    if (!tournamentId) {
+      return;
+    }
     if (!auctionState?.currentPlayerId || !currentPlayer) {
       setStatusMessage("Select a player before marking sold.");
       return;
@@ -480,12 +536,12 @@ function AuctionPage() {
     setSubmitting(true);
     setStatusMessage(null);
     try {
-      await markPlayerSold();
+      await markPlayerSold(tournamentId);
       const nextPlayer = getRandomAvailablePlayer(
         auctionState?.currentPlayerId ?? undefined,
       );
       if (nextPlayer) {
-        await setCurrentPlayer(nextPlayer.id);
+        await setCurrentPlayer(tournamentId, nextPlayer.id);
         setSelectedPlayerId(nextPlayer.id);
         setBidAmount("20000"); // Pre-fill bid for next player
       } else {
@@ -502,6 +558,10 @@ function AuctionPage() {
   };
 
   const handleMarkUnsold = async () => {
+    const tournamentId = requireActiveTournament();
+    if (!tournamentId) {
+      return;
+    }
     if (!auctionState?.currentPlayerId || !currentPlayer) {
       setStatusMessage("Select a player before marking unsold.");
       return;
@@ -513,12 +573,12 @@ function AuctionPage() {
     setSubmitting(true);
     setStatusMessage(null);
     try {
-      await markPlayerUnsold();
+      await markPlayerUnsold(tournamentId);
       const nextPlayer = getRandomAvailablePlayer(
         auctionState?.currentPlayerId ?? undefined,
       );
       if (nextPlayer) {
-        await setCurrentPlayer(nextPlayer.id);
+        await setCurrentPlayer(tournamentId, nextPlayer.id);
         setSelectedPlayerId(nextPlayer.id);
         setBidAmount("20000");
       } else {
@@ -547,10 +607,14 @@ function AuctionPage() {
     currentBidAmount > 0;
 
   const handleDeleteBid = async (index: number) => {
+    const tournamentId = requireActiveTournament();
+    if (!tournamentId) {
+      return;
+    }
     setSubmitting(true);
     setStatusMessage(null);
     try {
-      await deleteBidAtIndex(index);
+      await deleteBidAtIndex(tournamentId, index);
     } catch (err) {
       setStatusMessage(
         err instanceof Error ? err.message : "Unable to delete bid.",
@@ -559,6 +623,22 @@ function AuctionPage() {
       setSubmitting(false);
     }
   };
+
+  if (!activeTournamentId || !tournament) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>No Live Tournament</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>In Setup, create or select a tournament, then choose Set as live.</p>
+          <Button asChild variant="outline">
+            <Link to="/admin/setup">Go to Setup</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -569,6 +649,9 @@ function AuctionPage() {
               Auction Control
               {auctionState ? <Badge>{auctionState.status}</Badge> : null}
             </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {tournament.name} · {tournament.season}
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -988,7 +1071,11 @@ function AuctionPage() {
                   remaining={formatAmount(team.remainingPurse)}
                   playersCount={team.playersCount}
                   teamSize={tournament?.teamSize ?? 9}
-                  onClick={() => navigate(`/auction/teams/${team.id}`)}
+                  onClick={() =>
+                    navigate(
+                      `/auction/tournaments/${activeTournamentId}/teams/${team.id}`,
+                    )
+                  }
                 />
               ))}
             </div>

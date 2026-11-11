@@ -1,15 +1,15 @@
-# 🏏 Auction TrackerMVP
+# 🏏 Auction Tracker MVP
 
-Auction Tracker is a modern, real-time web application to manage and run a live sports auction for a tournament. It features an admin portal for full auction control (team setups, player pool management, and live bidding) and a public view-only portal for team captains to watch the auction unfold in real-time.
+Auction Tracker lets admins manage multiple tournaments and run one live player auction at a time. Team captains can follow the auction, player pool, and team budgets from the public view.
 
 ## 🌟 Key Features
 
 ### 🛠 Admin Features (Full Control)
-- **Tournament Setup**: Configure tournament details (name, season, team purse, team sizes).
-- **Player & Team Management**: Add, edit, or delete players and teams. Bulk import players using TSV format.
+- **Tournament Setup** — Create and select tournaments, configure team budgets and sizes, and choose the tournament shown live.
+- **Player & Team Management** — Manage teams and players per tournament, import players from TSV, and add optional photo links.
 - **Live Auction Control**:
   - Start bidding with auto-calculation of minimum bids.
-  - Quick bid increment buttons (2k, 5k, 10k) with auto-escalation limits.
+  - Quick bid difference buttons for 5,000 and 10,000, plus a manual amount.
   - Dedicated bid history (undo incorrect bids safely).
 - **Real-Time Sync**: Firestore listeners automatically push changes so that all connected devices see the current bid instantaneously.
   
@@ -17,7 +17,7 @@ Auction Tracker is a modern, real-time web application to manage and run a live 
 - **Live Action Tab**: Watch the current player on the block, the current bid, and the latest bid history in real-time.
 - **Completed Sales**: View a grid of sold players sorted by latest sales or highest prices.
 - **Teams & Roster**: Track how much purse each team has left, who they've bought, and their remaining auction power.
-- **Player Directory**: Browse available and sold players with powerful filtering and search.
+- **Player Directory** — Browse, search, and filter players. Click a photo to open the original link in a new tab.
 
 ## 💻 Tech Stack
 
@@ -26,7 +26,7 @@ Auction Tracker is a modern, real-time web application to manage and run a live 
 - **Styling:** TailwindCSS 4, Radix UI Primitives, Lucide Icons, Shadcn UI
 - **Backend & Database:** Firebase Firestore (Real-time DB) & Firebase Auth
 - **Routing:** React Router v7
-- **State Management:** React Hooks + Firebase real-time listeners
+- **State Management:** React hooks, Zustand, and Firebase real-time listeners
 
 ## 📂 Project Structure
 
@@ -44,8 +44,8 @@ src/
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js (v20+ recommended)
-- A Firebase project with Firebase Auth (Email/Password) and Firestore enabled.
+- Node.js 20.19+ on the Node 20 line, or Node.js 22.12+
+- A Firebase project with Firestore and Firebase Auth Email/Password enabled, plus an account for the auction admin
 
 ### 1. Installation
 
@@ -76,7 +76,7 @@ Start the Vite development server:
 npm run dev
 ```
 
-Your app should now be running at `http://localhost:5173`.
+Open [Admin Setup](http://localhost:5173/admin/setup) or the [public auction](http://localhost:5173/auction/view). The dev server uses the Firebase project configured in your environment. Use a separate Firebase project for test tournaments.
 
 ### 4. Building for Production
 
@@ -88,10 +88,24 @@ npm run build
 
 This will run TypeScript type checking and then bundle the application into the `dist/` directory.
 
-## 📝 Design & Rules
-- **One Tournament Limit:** The platform is built to handle a single active tournament.
-- **Offline Reliability:** The application uses background syncing for bid queues, helping resolve latency issues when many fast bids are submitted.
-- **Admin Access:** Standard users are view-only. Firebase Auth restricts destructive/auction-controlled actions exclusively to admin accounts.
+## Running an auction
+
+1. Sign in to **Admin → Setup** and click **New tournament**, or select an existing tournament.
+2. Enter the name, season, team purse, and team size. Save the tournament, then add teams and players to it.
+3. Click **Set as live**. The public Live tab and the admin auction controls now use the selected tournament.
+4. In **Admin → Auction**, select an available player and click **Start auction**.
+
+When no tournament is set live, public viewers can use the tournament selector. The Live tab shows a player as soon as the admin selects one, and bidding begins when the admin clicks **Start auction**.
+
+### Player photos
+
+In **Admin → Setup → Players**, paste a direct image URL or a Google Drive file share link into **Image link (optional)**. For a Drive photo to load for public viewers, set its general access to **Anyone with the link**. The admin and public auction screens, player lists, and public player details show a preview. Clicking a photo opens the original URL in a new tab. Missing or unavailable photos use a placeholder.
+
+## Firebase deployment
+
+The app uses `config/app.activeTournamentId` to select the live tournament. Each tournament has its own teams, players, and auction state under `tournaments/{tournamentId}`. Configure your project's Firestore rules for these paths. Public viewers need read access to the auction data, and the app's signed-in admin actions need write access.
+
+The previous single-tournament version used `tournament/current`, `teams`, `players`, and `auctionState/current` at the database root. To carry existing data into the new version, back it up and migrate it into a tournament before switching the deployment. Preserve team and player document IDs so bid, roster, and sale references still resolve, and set the new tournament as live in Setup. The new version reads the tournament-scoped collections, so unmigrated records will be absent from its views. See [the Firestore data model](REQUIREMENTS.md#firestore-data-model).
 
 ---
 *Created as an MVP for managing seamless, fast-paced sports auctions.*

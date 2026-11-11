@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { doc, onSnapshot } from "firebase/firestore";
+import { onSnapshot } from "firebase/firestore";
 
 import { PlayerPhoto } from "@/components/auction/PlayerPhoto";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,13 +8,17 @@ import { Badge } from "@/components/ui/badge";
 
 import { formatAmount, formatTeamLabel } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { teamsCollectionRef, type Player, type Team } from "@/lib/firestore";
+import {
+  getPlayerDocRef,
+  getTeamsCollectionRef,
+  type Player,
+  type Team,
+} from "@/lib/firestore";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 
 function AuctionPlayerPage() {
-  const { playerId } = useParams();
+  const { tournamentId, playerId } = useParams();
   const { user } = useAuth();
   const [player, setPlayer] = useState<Player | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -22,34 +26,29 @@ function AuctionPlayerPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!playerId) {
+    if (!tournamentId || !playerId) {
       return;
     }
-    const playerRef = doc(db, "players", playerId);
+    const playerRef = getPlayerDocRef(tournamentId, playerId);
     const unsubscribe = onSnapshot(playerRef, (snapshot) => {
       if (!snapshot.exists()) {
         setPlayer(null);
         return;
       }
-      const playerData = {
-        id: snapshot.id,
-        ...(snapshot.data() as Omit<Player, "id">),
-      };
-      setPlayer(playerData);
+      setPlayer(snapshot.data());
     });
     return () => unsubscribe();
-  }, [playerId]);
+  }, [playerId, tournamentId]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(teamsCollectionRef, (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as Omit<Team, "id">),
-      }));
-      setTeams(data);
+    if (!tournamentId) {
+      return;
+    }
+    const unsubscribe = onSnapshot(getTeamsCollectionRef(tournamentId), (snapshot) => {
+      setTeams(snapshot.docs.map((docSnap) => docSnap.data()));
     });
     return () => unsubscribe();
-  }, []);
+  }, [tournamentId]);
 
   const team = useMemo(
     () => teams.find((item) => item.id === player?.soldToTeamId) ?? null,
@@ -72,7 +71,7 @@ function AuctionPlayerPage() {
     return "Available";
   }, [player]);
 
-  if (!playerId) {
+  if (!tournamentId || !playerId) {
     return (
       <div className="flex min-h-svh flex-col">
         <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6">
@@ -169,7 +168,10 @@ function AuctionPlayerPage() {
             <p>
               Team:{" "}
               {team ? (
-                <Link className="text-primary" to={`/auction/teams/${team.id}`}>
+                <Link
+                  className="text-primary"
+                  to={`/auction/tournaments/${tournamentId}/teams/${team.id}`}
+                >
                   {formatTeamLabel(team)}
                 </Link>
               ) : (
